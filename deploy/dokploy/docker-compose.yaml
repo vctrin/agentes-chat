@@ -1,0 +1,87 @@
+# agentes.chat on Dokploy: the app and Postgres with pgvector, built from this repository.
+#
+# Dokploy does not generate secrets or a domain for you (unlike Coolify's SERVICE_* magic
+# variables in ../coolify/docker-compose.yaml): every value below with no default is one you
+# set, once, under this application's Environment tab in Dokploy.
+#
+# Dokploy's Environment tab is confirmed to fill in the ${...} substitutions in this file (it
+# writes the application's variables to a .env file next to it); whether it also injects every
+# one straight into each container's runtime environment is not. So every setting the app must
+# actually read is spelled out below as its own `environment:` line — add one the same way for
+# anything beyond what is already wired here. The full list, each one documented, is in
+# ../../.env.example.
+#
+# By hand, without Dokploy: ../../SELF_HOSTING.md ("This machine only, and by hand").
+services:
+  postgres:
+    # pgvector: the first migration creates the vector extension.
+    image: pgvector/pgvector:0.8.7-pg18@sha256:2358fcba361ed2233a5ed81b5fe4ca779ccb304120ce531a3bf51c0ed7e2bc11
+    environment:
+      POSTGRES_USER: agentes
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD under this application's Environment tab}"
+      POSTGRES_DB: agentes
+    volumes:
+      # Postgres 18 images keep their data in /var/lib/postgresql/18/docker, under this mount.
+      - pgdata:/var/lib/postgresql
+    restart: unless-stopped
+    healthcheck:
+      # Over TCP: on first start the init server listens only on the Unix socket, then restarts.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U agentes -d agentes"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  agentes:
+    # Built from this repository's own Dockerfile: there is no published image for a fork, and
+    # ghcr.io/agentes-chat/agentes is the upstream project's, not yours. To run a prebuilt image
+    # instead (your own registry, or the upstream one if you have pull rights), drop build: below
+    # and set AGENTES_IMAGE to that tag.
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: "${AGENTES_IMAGE:-agentes-chat:dokploy}"
+    environment:
+      PUBLIC_URL: "${PUBLIC_URL:?set PUBLIC_URL: the exact https://domain you attach below, no trailing slash, no port}"
+      AGENTES_SECRET: "${AGENTES_SECRET:?set AGENTES_SECRET: openssl rand -hex 32, then keep it with your backups}"
+      DATABASE_URL: "postgres://agentes:${POSTGRES_PASSWORD}@postgres:5432/agentes"
+      FILES_DIR: /data/files
+    volumes:
+      - files:/data/files
+    # No ports published: Dokploy's own Traefik reaches this container over dokploy-network once
+    # you attach a domain to it (this service's Domains tab, container port 3000). A ports:
+    # mapping would put the app on the host, past any firewall, in plain http.
+    expose:
+      - "3000"
+    # default: so this container keeps talking to postgres, which has no reason to join
+    # dokploy-network itself. dokploy-network: so Dokploy's Traefik can reach this one.
+    networks:
+      - default
+      - dokploy-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    # Runs in progress get 20 s to finish on SIGTERM (RUN_DRAIN_MS, apps/server/src/start.ts);
+    # beyond that the kernel does not wait.
+    stop_grace_period: 40s
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    # Over it, the kernel stops this container alone and Docker restarts it, instead of the
+    # machine swapping until Postgres or Dokploy's own services are killed. On a 4 GB host, set 3g.
+    mem_limit: "${AGENTES_MEMORY:-8g}"
+    memswap_limit: "${AGENTES_MEMORY:-8g}"
+
+networks:
+  # Created by Dokploy itself; declared external so this file doesn't try to make its own.
+  dokploy-network:
+    external: true
+
+volumes:
+  pgdata:
+  files:
