@@ -195,3 +195,25 @@ outside and do not work otherwise: routines started by GitHub, Sentry or their o
 (`/api/webhooks/…`, `/api/hooks/…`), a GitHub App's events (`/api/github-app/webhook`),
 Composio's events, and AI apps that call `/mcp` from their own servers (claude.ai, ChatGPT).
 Claude Code, Cursor and VS Code call from your computer, so they also work on a private instance.
+
+## 13. Staying in sync with a public fork
+
+If this repository is a private clone of a public fork you still track (a `deploy/dokploy/`
+of its own, kept separate from upstream's history), [`.github/workflows/sync-upstream.yml`](../../.github/workflows/sync-upstream.yml)
+merges that fork's `main` into this one daily and pushes the result, so this stays a few commits
+behind at most. Two things make it actually reach the running instance:
+
+- **This application's Auto Deploy must be on** (source settings). Without it, the workflow
+  keeps this repository current, but nothing redeploys until you click Deploy by hand.
+- **Workflow permissions**: this repository's Settings → Actions → General → Workflow
+  permissions needs "Read and write permissions", once, so the workflow's push succeeds.
+
+A merge that conflicts aborts and fails the run on purpose — GitHub emails the repository's
+owner — rather than silently skipping an update or force-pushing over it. Resolve it the same
+way the workflow tried to: fetch the fork, merge, fix the conflict by hand, push.
+
+The workflow pushes straight to `main` with no review step and no test run of its own (every
+commit it merges already passed the public fork's own CI as a merge commit there). That is a
+direct, unreviewed deploy on every successful sync — reasonable for a single-owner instance, but
+worth pairing with the backup habit in §9: a bad upstream commit is still easiest to recover from
+with a recent `pg_dump` and a files backup already in hand, since migrations do not reverse.

@@ -1,0 +1,57 @@
+# Keeps this private repository's main branch up to date with vctrin/agentes-chat (the public
+# fork this one was split off from, which itself tracks the agentes.chat project upstream),
+# while keeping this repo's own commit on top (deploy/dokploy/, this workflow itself, and
+# anything else added here that isn't in the public fork).
+#
+# Runs daily, and on demand (Actions tab -> Sync upstream -> Run workflow). A merge that goes
+# through cleanly is pushed straight to main; Dokploy's own auto-deploy (if turned on for this
+# application) then redeploys it. A merge that conflicts is aborted and the run is left failed,
+# on purpose, so GitHub emails the repository's owner instead of silently skipping it.
+#
+# This workflow does not run any test before pushing: every commit it merges already went
+# through the public fork's own CI as a "Merge pull request" commit. It is still a direct,
+# unreviewed push to the branch this application deploys from, with no approval step in
+# between — acceptable for a solo instance, but worth knowing.
+#
+# Requires, once: Settings -> Actions -> General -> Workflow permissions -> "Read and write
+# permissions", so the default GITHUB_TOKEN can push back to this repository.
+name: Sync upstream
+
+on:
+  schedule:
+    - cron: "23 7 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch vctrin/agentes-chat
+        run: git fetch --no-tags https://github.com/vctrin/agentes-chat.git main
+
+      - name: Merge into main
+        run: |
+          if git merge --no-edit FETCH_HEAD; then
+            echo "Merged cleanly."
+          else
+            git merge --abort
+            echo "::error::Merging vctrin/agentes-chat/main hit a conflict. Resolve it by hand: git fetch https://github.com/vctrin/agentes-chat.git main && git merge FETCH_HEAD, fix the conflict, commit, push." >&2
+            exit 1
+          fi
+
+      - name: Push main
+        run: git push origin main
