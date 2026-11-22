@@ -88,11 +88,8 @@ export async function desktopTarget(
       : (await isRightHandId(db, orgId, agentId)) && !(await runsCommands(db, orgId, agentId));
   const agent = await viewerScope(db, orgId, agentId, viewerId, told, make && !off, shared);
   if (!agent) return refused(STREAM_CLOSE.notFound, "no_agent");
-  // Why the right hand has no seat here, for the apps to say: no computer of the workspace's own, or one that runs
-  // every agent as one user.
-  if ("reason" in agent) {
-    return refused(STREAM_CLOSE.notFound, agent.reason === "not_system" ? "not_system" : "no_home");
-  }
+  // Why the right hand has no seat here, for the apps to say: no computer of the workspace's own.
+  if ("reason" in agent) return refused(STREAM_CLOSE.notFound, "no_home");
   if (off) {
     return kind === "desktop"
       ? refused(STREAM_CLOSE.notFound, "no_desktop")
@@ -303,7 +300,7 @@ export interface DesktopDeps {
 
 /** The REST reaches a computer through whichever server holds its socket (`hub.call`), unlike a stream. */
 const ANYWHERE = { isLocal: () => true };
-const NO_SCREEN = ["no_agent", "no_desktop", "no_computer", "no_home", "not_system", "not_allowed"];
+const NO_SCREEN = ["no_agent", "no_desktop", "no_computer", "no_home", "not_allowed"];
 
 /**
  * An agent's desktop as one person sees it: whether it can be shown and runs, who controls it, what they may

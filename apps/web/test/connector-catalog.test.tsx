@@ -532,19 +532,65 @@ describe("the connect flow: conectar → conectado; Ajustar → o que faz → qu
     const flow = screen().getByRole("dialog", { name: "Conectar Linear" });
     await click(within(flow).getByRole("button", { name: "Continuar no Linear" }));
     await settle(4);
+    // An admin: their own app is the way in, opened with the refusal on top.
     expect(flow.textContent).toContain(
-      "Linear só deixa entrar apps que aprovou, e o agentes.chat ainda não foi aprovado. Se ele te der uma chave de API, dá para conectar com ela.",
+      "Linear só deixa entrar apps que aprovou, e o agentes.chat ainda não foi aprovado. Dá para conectar com um app seu lá.",
     );
     // Under our words, the server's: which one refused and why.
     expect(flow.querySelector(".cflow__said")?.textContent).toBe(
       "O servidor respondeu: invalid_redirect_uri: redirect_uri not allowed",
     );
     expect(flow.textContent).not.toContain("não aceita OAuth");
-    expect(flow.querySelector("details.cflow__more")?.hasAttribute("open")).toBe(true);
+    const [keyMore, ownMore] = [...flow.querySelectorAll("details.cflow__more")];
+    expect(ownMore?.hasAttribute("open")).toBe(true);
+    expect(keyMore?.hasAttribute("open")).toBe(false);
+    await click(keyMore?.querySelector("summary") as Element);
     await type(within(flow).getByLabelText("Chave de API"), "lin_api_123456");
     await click(within(flow).getByRole("button", { name: "Conectar com a chave" }));
     await settle(4);
     expect(screen().getByRole("dialog", { name: "Linear conectado" })).toBeTruthy();
+  });
+
+  test("an admin connects a server that lets in only apps it approved with the workspace's own OAuth app", async () => {
+    const state = seedState({ connections: [] });
+    const api = createFakeApi(state);
+    const connect = api.customConnectors.connect;
+    let own = false;
+    api.customConnectors.connect = async (orgId, input) =>
+      own
+        ? { status: "oauth", authorizeUrl: "https://auth.example.com/authorize?client_id=1234567890" }
+        : input.apiKey
+          ? connect(orgId, input)
+          : { status: "needs_key", reason: "not_approved" };
+    const setOwn = api.customConnectors.setOwnClient;
+    api.customConnectors.setOwnClient = async (orgId, input) => {
+      own = true;
+      return setOwn(orgId, input);
+    };
+    const left: string[] = [];
+    setNavigateAway((url) => left.push(url));
+    const { dialog } = await open(state, api);
+    await pick(dialog, "Linear");
+    const flow = screen().getByRole("dialog", { name: "Conectar Linear" });
+    await click(within(flow).getByRole("button", { name: "Continuar no Linear" }));
+    await settle(6);
+    expect(flow.querySelector(".machine-command__code")?.textContent).toBe(
+      "https://chat.example.com/api/app/connectors/oauth/callback",
+    );
+    await click(within(flow).getByRole("button", { name: "Salvar e continuar" }));
+    await settle(2);
+    expect(flow.textContent).toContain("Cole o ID do cliente do app.");
+    await type(within(flow).getByLabelText("ID do cliente"), " 1234567890 ");
+    await type(within(flow).getByLabelText("Chave secreta do cliente"), "fake-app-secret");
+    await click(within(flow).getByRole("button", { name: "Salvar e continuar" }));
+    await settle(6);
+    expect(state.calls.filter((c) => c.method === "customConnectors.setOwnClient").map((c) => c.args[1])).toEqual([
+      { serverUrl: "https://mcp.linear.app/mcp", clientId: "1234567890", clientSecret: "[redacted]", scopes: "" },
+    ]);
+    expect(left).toEqual(["https://auth.example.com/authorize?client_id=1234567890"]);
+    expect(await api.customConnectors.ownClient(ORG_ID, "https://mcp.linear.app/mcp")).toMatchObject({
+      client: { clientId: "1234567890", hasSecret: true },
+    });
   });
 
   test("a one-click server the catalog lists without a key (Intercom on the Cloud) offers no API key", async () => {

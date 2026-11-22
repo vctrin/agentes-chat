@@ -17,7 +17,7 @@ import {
 import { realFoldersFor } from "./access";
 import { agentAccountHome, agentAccountsDir, grantOf, lentAccounts } from "./accounts";
 import { dropAgySignIns } from "./agy-home";
-import { BrainManager, turnContext } from "./brain";
+import { BrainManager, readyRoom, turnContext } from "./brain";
 import { CodexAppServers } from "./brain-codex-app";
 import { BrowserManager, type BrowserManagerOptions, launchChrome } from "./browser";
 import type { BrowserPorts } from "./browser-ports";
@@ -607,6 +607,7 @@ export async function runWorker(o: WorkerOptions): Promise<number> {
     ...(o.claudeCommand ? { claudeCommand: o.claudeCommand } : {}),
     ...brainLimits(),
     ...(cli ? { spawn: cli } : {}),
+    readyRoom,
     log,
   });
   const codexRuns = new Map<string, McpTaskInfo>();

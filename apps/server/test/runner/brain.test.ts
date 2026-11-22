@@ -690,7 +690,9 @@ function setup(over: Partial<BrainManagerOptions> = {}) {
         .trim()
         .split("\n")
         .filter(Boolean)
-        .map((l) => JSON.parse(l) as { pid: number; args: string[]; system: string | null });
+        .map(
+          (l) => JSON.parse(l) as { pid: number; args: string[]; system: string | null; autoMemoryOff: string | null },
+        );
     } catch {
       return [];
     }
@@ -1351,6 +1353,8 @@ test.if(posix)(
     await turn(1, "do");
     const args = spawns()[0]?.args ?? [];
     expect(args[args.indexOf("--setting-sources") + 1]).toBe("");
+    // Claude Code's auto memory too: it lived in the sign-in's folder, which the agent's own tools can't list.
+    expect(spawns()[0]?.autoMemoryOff).toBe("1");
     expect(args.join(" ")).not.toContain("collect.example.net");
     const system = readFileSync(args[args.indexOf("--append-system-prompt-file") + 1] as string, "utf8");
     expect(system.startsWith("You are dev.")).toBe(true);
@@ -1362,6 +1366,7 @@ test.if(posix)(
     await own.turn(1, "do", { personalMcp: true });
     const oargs = own.spawns()[0]?.args ?? [];
     expect(oargs).not.toContain("--setting-sources");
+    expect(own.spawns()[0]?.autoMemoryOff).toBeNull();
     expect(readFileSync(oargs[oargs.indexOf("--append-system-prompt-file") + 1] as string, "utf8")).toBe(
       "You are dev.",
     );
@@ -3183,6 +3188,77 @@ test.if(posix)(
     // Awake past the idle time: it closes at the next look.
     awake = 1_000;
     await waitFor(() => m.size === 0 && proc?.exited === true, 4000);
+  },
+);
+
+test.if(posix)(
+  "a turn that starts a process says why: a new session, another launch, idle past its limit, a session from before",
+  async () => {
+    const { m, turn } = setup({ idleMs: 60, clock: { read: () => Date.now() } });
+    const cold = (f: WireBrainEvent) => (f.type === "done" ? f.timings : undefined);
+    expect(cold((await turn(1, "hi")).final)).toMatchObject({ warm: false, cold: "new_session" });
+    expect(cold((await turn(2, "again")).final)).toEqual(expect.not.objectContaining({ cold: expect.anything() }));
+    // Opus falls back to sonnet, which only a start sets.
+    expect(cold((await turn(3, "opus", { model: "opus" })).final)).toMatchObject({ warm: false, cold: "settings" });
+    await waitFor(() => m.size === 0, 4000);
+    expect(cold((await turn(4, "later", { model: "opus" })).final)).toMatchObject({ warm: false, cold: "idle" });
+    const before = { session: { id: SESSION(5), resume: true } };
+    expect(cold((await turn(5, "old", before)).final)).toMatchObject({ warm: false, cold: "restart" });
+  },
+);
+
+test.if(posix)(
+  "a new conversation takes the agent's ready process, whose session answers for the server's from then on",
+  async () => {
+    const { m, home, ws, spawns, turn } = setup({ maxProcesses: 3, readyRoom: () => true });
+    await turn(1, "hi", { system: "S1" });
+    // After the turn, a process on a session of its own, with the agent's text, for its next new conversation.
+    await waitFor(() => spawns().length === 2, 4000);
+    const ready = spawns()[1];
+    const readyId = ready?.args.at(-1) ?? "";
+    expect(ready?.system).toBe("S1");
+    expect(ready?.args.at(-2)).toBe("--session-id");
+    expect(readyId).not.toBe(SESSION(1));
+    const b = await turn(2, "there", { system: "S1", session: { id: SESSION(2), resume: false } });
+    expect(b.final).toMatchObject({ type: "done", text: "echo 1: there", session: { id: readyId } });
+    expect(b.final).toMatchObject({ timings: { warm: true } });
+    // The next one is ready for the conversation after; this one goes on on the same process.
+    await waitFor(() => spawns().length === 3, 4000);
+    const c = await turn(3, "more", { system: "S1", session: { id: SESSION(2), resume: true } });
+    expect(c.final).toMatchObject({ type: "done", text: "echo 2: more", timings: { warm: true } });
+    expect(spawns()).toHaveLength(3);
+    // Another text: the ready process isn't taken (its text would be the session's for good).
+    const d = await turn(4, "new", { system: "S2", session: { id: SESSION(4), resume: false } });
+    expect(d.final).toMatchObject({ type: "done", text: "echo 1: new", timings: { warm: false, cold: "new_session" } });
+    expect(spawns()[3]?.args.slice(-2)).toEqual(["--session-id", SESSION(4)]);
+    // A runner started again resumes the adopted conversation by the session Claude Code knows it by.
+    // Three processes open (the agent's cap): no ready one now.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(spawns()).toHaveLength(4);
+    m.close();
+    const again = new BrainManager({
+      root: path.join(home, "brains"),
+      claudeCommand: [process.execPath, FAKE],
+      claudeHome: path.join(home, "no-claude-home"),
+      mcp: { socketPath: path.join(home, "mcp.sock"), command: ["node", "runner.mjs"] },
+      deltaMs: 5,
+    });
+    managers.push(again);
+    const folder = await agentWorkspace(ws, AGENT);
+    const e = await again.turn(
+      {
+        runId: RUN(5),
+        kind: "claude_code",
+        session: { id: SESSION(2), resume: true },
+        cwd: "",
+        system: "S1",
+        prompt: "back",
+        mcp: { token: `agr_${"t".repeat(24)}5` },
+      },
+      { agent: AGENT, folder, emit: () => {} },
+    );
+    expect(e).toMatchObject({ type: "done", timings: { warm: false, cold: "restart" } });
+    expect(spawns().at(-1)?.args.slice(-2)).toEqual(["--resume", readyId]);
   },
 );
 

@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import { z } from "zod";
 import { parseFirebaseServiceAccount, parsePemKey } from "./pem";
 
@@ -62,6 +63,31 @@ function isOrigin(value: string): boolean {
 
 /** Claude model ids accepted as defaults. Prices live in `@agenteschat/providers` (`MODEL_CATALOG`). */
 const modelId = z.string().regex(/^[a-z0-9][a-z0-9.-]*$/, "must be a model id such as claude-sonnet-5-5");
+
+/** A comma-separated list, trimmed and normalized, empty entries dropped; each entry checked by `ok`. */
+const commaList = (ok: (entry: string) => boolean, message: string, normalize = (entry: string) => entry) =>
+  z
+    .string()
+    .optional()
+    .transform((value) =>
+      (value ?? "")
+        .split(",")
+        .map((entry) => normalize(entry.trim()))
+        .filter(Boolean),
+    )
+    .refine((entries) => entries.every(ok), message);
+
+const HOST_LABELS = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
+/** A host name, or `*.` and a suffix of two labels or more (never a whole top-level domain). */
+const allowedHost = (entry: string) =>
+  !isIP(entry) && HOST_LABELS.test(entry.startsWith("*.") ? entry.slice(2) : entry);
+/** An IPv4 or IPv6 address, alone or with a prefix length in range. */
+const allowedRange = (entry: string) => {
+  const [address = "", bits, ...rest] = entry.split("/");
+  const family = isIP(address);
+  if (!family || rest.length > 0) return false;
+  return bits === undefined || (/^\d{1,3}$/.test(bits) && Number(bits) <= (family === 6 ? 128 : 32));
+};
 
 export const envVars = {
   NODE_ENV: {
@@ -434,8 +460,9 @@ export const envVars = {
     section: "Agents",
   },
   AGENT_MAX_OUTPUT_TOKENS: {
-    schema: z.coerce.number().int().min(256).max(128_000).default(16_000),
-    description: "Upper bound on tokens an agent may generate in one reply.",
+    schema: z.coerce.number().int().min(256).max(128_000).optional(),
+    description:
+      "Upper bound on tokens an agent may generate in one model call, thinking included. Unset: 64,000 on models whose limit is known (up to 128,000 at maximum effort), 16,000 on the rest. The agent's monthly budget is still reserved before each call.",
     section: "Agents",
   },
   CLAUDE_PLAN_CONCURRENCY: {
@@ -504,8 +531,26 @@ export const envVars = {
   MODEL_ENDPOINTS_PRIVATE: {
     schema: z.stringbool().optional(),
     description:
-      "Whether a workspace's own model endpoint (Settings › AI keys › Other provider) may be on this server's network or over http: an Ollama, vLLM, LM Studio or LiteLLM next to it. The same switch covers the other addresses a workspace names: custom MCP servers and their sign-in, its own bucket, server icons and the pages agents read. Unset: allowed, except on agentes.chat Cloud (https://app.agentes.chat) and with `ALLOW_SIGNUP=true`, where only public https addresses are, checked again at every connection.",
+      "Whether a workspace's own model endpoint (Settings › AI keys › Other provider) may be on this server's network or over http: an Ollama, vLLM, LM Studio or LiteLLM next to it. The other addresses a workspace names (custom MCP servers and their sign-in, its own bucket, server icons, the pages agents read) reach a private network only through `OUTBOUND_ALLOW_CIDRS` or `OUTBOUND_ALLOW_HOSTS`. Unset: allowed, except on agentes.chat Cloud (https://app.agentes.chat) and with `ALLOW_SIGNUP=true`, where only public https addresses are, checked again at every connection.",
     section: "Agents",
+  },
+  OUTBOUND_ALLOW_HOSTS: {
+    schema: commaList(
+      allowedHost,
+      "must be host names or *.suffixes such as *.tail1234.ts.net, comma-separated",
+      (host) => host.toLowerCase(),
+    ),
+    description:
+      "Comma-separated host names, or `*.` suffixes, that addresses a workspace types (custom MCP servers and their sign-in, its own bucket, a database, a mail server, a password manager, the pages its agents read) may reach on a private network, such as a Tailscale tailnet or a LAN, whatever they resolve to, checked again at every connection. Loopback and cloud metadata addresses stay refused, and agentes.chat Cloud ignores it. Name a narrow suffix: everyone who can make a name under it can point it at your network. Unset: none.",
+    section: "Security",
+    example: "*.tail1234.ts.net,nas.example.com",
+  },
+  OUTBOUND_ALLOW_CIDRS: {
+    schema: commaList(allowedRange, "must be IP addresses or CIDR ranges such as 100.64.0.0/10, comma-separated"),
+    description:
+      "Comma-separated IP ranges (CIDR) or addresses that addresses a workspace types may reach, as with `OUTBOUND_ALLOW_HOSTS`: Tailscale's are `100.64.0.0/10` and `fd7a:115c:a1e0::/48`. Loopback, link-local and cloud metadata addresses stay refused even inside a range, and agentes.chat Cloud ignores it. Unset: none.",
+    section: "Security",
+    example: "100.64.0.0/10,fd7a:115c:a1e0::/48",
   },
   SUMMARY_MODEL: {
     schema: modelId.default("claude-haiku-5-5"),
@@ -793,6 +838,66 @@ export const envVars = {
   CONNECTOR_LINEAR_CLIENT_SECRET: {
     schema: z.string().optional(),
     description: "Client secret of the Linear OAuth app for the Linear connector.",
+    section: "Connectors",
+    secret: true,
+  },
+  CONNECTOR_X_CLIENT_ID: {
+    schema: z.string().optional(),
+    description:
+      "OAuth 2.0 client id of this server's X app (console.x.com, type Web App, Automated App or Bot; Read and write), for the X connector (ADR 0170). Set together with `CONNECTOR_X_CLIENT_SECRET`. Callback URL: `{PUBLIC_URL}/api/app/connectors/oauth/callback`. Without it, X isn't offered. Steps: docs/social-apps-checklist.md.",
+    section: "Connectors",
+  },
+  CONNECTOR_X_CLIENT_SECRET: {
+    schema: z.string().optional(),
+    description: "OAuth 2.0 client secret of this server's X app (not its API key).",
+    section: "Connectors",
+    secret: true,
+  },
+  CONNECTOR_X_CALLS_PER_MONTH: {
+    schema: z.coerce.number().int().min(0).default(0),
+    description:
+      "X calls a workspace may make per calendar month (UTC): X bills this server's app per post written and read. At the cap its X tools stop until the next month. 0: no cap.",
+    section: "Connectors",
+  },
+  CONNECTOR_THREADS_APP_ID: {
+    schema: z.string().optional(),
+    description:
+      "Threads app id of this server's Meta app with the Threads use case (its own id, not the main app's), for the Threads connector (ADR 0170). Set together with `CONNECTOR_THREADS_APP_SECRET`. Redirect URI: `{PUBLIC_URL}/api/app/connectors/oauth/callback`; uninstall and delete callbacks: `{PUBLIC_URL}/api/webhooks/meta/deauthorize` and `/api/webhooks/meta/data-deletion`. Without it, Threads isn't offered. Steps: docs/social-apps-checklist.md.",
+    section: "Connectors",
+  },
+  CONNECTOR_THREADS_APP_SECRET: {
+    schema: z.string().optional(),
+    description: "Threads app secret of this server's Meta app for Threads.",
+    section: "Connectors",
+    secret: true,
+  },
+  CONNECTOR_META_ADS_APP_ID: {
+    schema: z.string().optional(),
+    description:
+      "App id of this server's Meta business app (Marketing API), for the Meta Ads connector (ADR 0170). Set together with `CONNECTOR_META_ADS_APP_SECRET` and `CONNECTOR_META_ADS_CONFIG_ID`. Valid OAuth redirect URI: `{PUBLIC_URL}/api/app/connectors/oauth/callback`; deauthorize and data deletion callbacks as for Threads. Without them, Meta Ads isn't offered.",
+    section: "Connectors",
+  },
+  CONNECTOR_META_ADS_APP_SECRET: {
+    schema: z.string().optional(),
+    description: "App secret of this server's Meta business app for Meta Ads.",
+    section: "Connectors",
+    secret: true,
+  },
+  CONNECTOR_META_ADS_CONFIG_ID: {
+    schema: z.string().optional(),
+    description:
+      "Configuration ID of the app's Facebook Login for Business configuration (a system-user token that doesn't expire; ad accounts and Pages).",
+    section: "Connectors",
+  },
+  CONNECTOR_TIKTOK_CLIENT_KEY: {
+    schema: z.string().optional(),
+    description:
+      "Client key of this server's TikTok for Developers app (Login Kit for Web and the Content Posting API), for the TikTok connector (ADR 0170). Set together with `CONNECTOR_TIKTOK_CLIENT_SECRET`. Redirect URI: `{PUBLIC_URL}/api/app/connectors/oauth/callback`. Without it, TikTok isn't offered.",
+    section: "Connectors",
+  },
+  CONNECTOR_TIKTOK_CLIENT_SECRET: {
+    schema: z.string().optional(),
+    description: "Client secret of this server's TikTok app.",
     section: "Connectors",
     secret: true,
   },

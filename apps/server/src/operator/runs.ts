@@ -384,6 +384,10 @@ const Trace = z
             .array(
               z.object({
                 warm: z.boolean().openapi({ description: "On a process already open." }),
+                cold: z.string().nullable().openapi({
+                  description:
+                    "Not warm: why it started a new process (`coldStarts.cause` of the run timings); null when warm or an older runner didn't say.",
+                }),
                 initMs: Count.nullable().openapi({ description: "A new process until it said it was ready." }),
                 firstEventMs: Count.nullable().openapi({ description: "Turn start to its first event." }),
                 firstTokenMs: Count.nullable().openapi({

@@ -24,12 +24,14 @@ import {
   type FileRef,
   fileInfo,
   IMAGE_EXT,
+  isLocalPdf,
   singleImageBox,
   VIDEO_EXT,
   videoClock,
   videoHeight,
 } from "./logic";
 import { openFile } from "./open";
+import { LocalPdfPage } from "./pdf-preview";
 import { pictureDrawn, pictureFade, rememberLocalCopy, useArtifacts, useRemoteFile } from "./source";
 import { VideoFirstFrame, VideoPlayer } from "./VideoPlayer";
 
@@ -424,7 +426,15 @@ function LocalFileCard({ file, sending }: { file: LocalFile; sending: boolean })
   const surface = useSurface();
   return (
     <View style={[styles.card, surface, cardCorners]} accessible accessibilityLabel={file.name}>
-      <FileTile ext={extLabel(extensionOf(file.name))} />
+      {isLocalPdf(file) ? (
+        // A PDF on its way shows its first page already, read from the phone's own file, as it did in the composer.
+        <View style={styles.page}>
+          <FileTile ext={extLabel(extensionOf(file.name))} />
+          <LocalPdfPage uri={file.uri} />
+        </View>
+      ) : (
+        <FileTile ext={extLabel(extensionOf(file.name))} />
+      )}
       <View style={styles.grow}>
         <Text variant="body" style={styles.bold} numberOfLines={2}>
           {file.name}
@@ -533,6 +543,8 @@ const styles = StyleSheet.create({
     borderRadius: 14,
   },
   tile: { width: 40, height: 48, borderRadius: 8, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  // A PDF's first page in the tile's own box.
+  page: { width: 40, height: 48, borderRadius: 8, overflow: "hidden" },
   fold: {
     position: "absolute",
     top: -1,

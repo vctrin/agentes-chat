@@ -90,6 +90,11 @@ export interface McpTaskInfo {
    */
   idle?: boolean;
   /**
+   * The agent a brain process thinks for: between turns its list is the one this agent's last run got, so a process
+   * started before its first turn (`brain.warm`) lists the agent's tools, as its turn will, not the fixed mission ones.
+   */
+  agentId?: string;
+  /**
    * A CLI with the delegated profile: Claude Code's own tools, served here (`delegated-tools.ts`). Its relay opens a
    * `session`, the only way to them; every other executor's list and calls stay as they are.
    */
@@ -301,6 +306,8 @@ export class McpBridge {
   private readonly waiting = new Map<string, { frame: RunnerFrame; tool: string }>();
   /** The list each MCP process got last (by its task or process id), for the run it was for. */
   private readonly lists = new Map<string, { run: string; at: number; reply: IpcReply }>();
+  /** The list each agent's brain run got last (`McpTaskInfo.agentId`), most recent last. */
+  private readonly agentLists = new Map<string, IpcReply>();
 
   constructor(
     private readonly opts: {
@@ -460,8 +467,11 @@ export class McpBridge {
     }
     if (!info.running) {
       // A brain process between turns: its background refresh waits for the next turn, quietly.
-      if (info.idle)
+      if (info.idle) {
+        const last = req.kind === "list" && info.agentId ? this.agentLists.get(info.agentId) : undefined;
+        if (last) return last;
         return { ok: false, error: "No turn is running right now. Try again in your next turn.", idle: true };
+      }
       return { ok: false, error: "This task has ended." };
     }
     if (req.kind === "list") {
@@ -484,6 +494,11 @@ export class McpBridge {
       for (const [id, l] of this.lists) if (now - l.at >= LIST_MEMO_MS) this.lists.delete(id);
       const kept: IpcReply = { ...reply, memo: true };
       this.lists.set(taskId, { run, at: now, reply: kept });
+      if (info.agentId) {
+        this.agentLists.delete(info.agentId);
+        this.agentLists.set(info.agentId, kept);
+        if (this.agentLists.size > AGENT_LISTS_KEPT) this.agentLists.delete(this.agentLists.keys().next().value ?? "");
+      }
       return kept;
     }
     const tool = typeof req.tool === "string" ? req.tool.slice(0, 64) : "";
@@ -733,6 +748,9 @@ export type ToolCaller = (tool: string, args: Record<string, unknown>) => Promis
 /** The run's tools as the bridge knows them now (protocol 8). */
 export type ToolLister = () => Promise<readonly McpToolInfo[]>;
 
+/** Agents whose last list the daemon keeps for their brain processes between turns (`McpBridge.agentLists`). */
+const AGENT_LISTS_KEPT = 200;
+
 /** How long the MCP process trusts its list before asking again (a `tools/list` within this is answered locally). */
 export const TOOLS_CACHE_MS = 30_000;
 /** How long the daemon answers an MCP process's list for the same run by itself (`McpBridge`). */
@@ -762,6 +780,8 @@ export class McpToolCache {
   private asking: Promise<boolean> | null = null;
   /** The daemon answered the last ask by itself (between turns, or the same run's list): asking often is free. */
   local = false;
+  /** The executor was handed the fixed mission tools for want of a list: the first real one is announced. */
+  fellBack = false;
 
   constructor(
     private readonly fetch: () => Promise<IpcReply>,
@@ -776,7 +796,9 @@ export class McpToolCache {
     const now = (this.opts.now ?? Date.now)();
     if (this.list && now - this.loadedAt < (this.opts.ttlMs ?? TOOLS_CACHE_MS)) return this.list;
     await this.refresh();
-    return this.list ?? MISSION_MCP_TOOLS;
+    if (this.list) return this.list;
+    this.fellBack = true;
+    return MISSION_MCP_TOOLS;
   }
 
   /** Asks the server; true when the list differs from the one before (not on the first load). */
@@ -795,7 +817,8 @@ export class McpToolCache {
     if (idle) this.loadedAt = 0;
     if (!reply?.ok || !reply.tools) return false;
     const key = JSON.stringify(reply.tools);
-    const changed = this.list !== null && key !== this.key;
+    const changed = (this.list !== null && key !== this.key) || this.fellBack;
+    this.fellBack = false;
     this.list = reply.tools;
     this.key = key;
     this.loadedAt = (this.opts.now ?? Date.now)();
@@ -901,7 +924,12 @@ export async function handleMcpMessage(
           : {};
       // Claude Code's permission prompt: always an answer it understands (allow or deny JSON), never an error.
       if (name === PERMISSION_TOOL) {
-        const answer = await permissionPrompt(args, call, { ...(scope ? { scope } : {}), profile, ...context });
+        const answer = await permissionPrompt(args, call, { ...(scope ? { scope } : {}), profile, ...context }).catch(
+          (err): PermissionAnswer => ({
+            behavior: "deny",
+            message: `This command couldn't be checked (${String(err).slice(0, 200)}). Run it another way, or split it into simpler steps.`,
+          }),
+        );
         return { jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(answer) }] } };
       }
       const reply = await call(name, args);
@@ -1117,7 +1145,7 @@ export async function runMcpServer(options: {
     const often = !cache.loaded || cache.local;
     const ms = often ? (options.pollMs ?? TOOLS_POLL_MS) : (options.refreshMs ?? TOOLS_REFRESH_MS);
     refresher = setTimeout(() => {
-      if (!cache.loaded) refreshLater();
+      if (!cache.loaded && !cache.fellBack) refreshLater();
       else void cache.refresh().finally(refreshLater);
     }, ms);
     refresher.unref?.();
@@ -1140,7 +1168,11 @@ export async function runMcpServer(options: {
       .then((res) => {
         if (res) write(res);
       })
-      .catch(() => undefined)
+      // A request left unanswered keeps Claude Code waiting on it for good, its turn quiet until the stall check.
+      .catch((err) => {
+        const id = (message as { id?: unknown } | null)?.id;
+        if (typeof id === "string" || typeof id === "number") write(rpcError(id, -32603, String(err).slice(0, 200)));
+      })
       .finally(() => inflight.delete(p));
     inflight.add(p);
   }

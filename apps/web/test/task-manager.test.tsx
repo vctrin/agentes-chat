@@ -49,6 +49,16 @@ const click = async (el: Element) => {
   await act(async () => fireEvent.click(el));
   await settle(3);
 };
+/** A header's meta line, its parts without the "·" between them (`MetaLine`). */
+const metaParts = (panel: Element) => {
+  const meta = panel.querySelector(".thread-head__meta");
+  if (!meta) return [];
+  const walker = document.createTreeWalker(meta, NodeFilter.SHOW_TEXT);
+  const out: string[] = [];
+  for (let n = walker.nextNode(); n; n = walker.nextNode())
+    if (!n.parentElement?.closest("[aria-hidden='true'], .thread-head__dot")) out.push(n.textContent ?? "");
+  return out;
+};
 const type = (el: Element, value: string) => act(async () => fireEvent.change(el, { target: { value } }));
 
 const using = (tool: string, detail: string | null, connector: string | null = null) => ({
@@ -514,7 +524,7 @@ describe("the task manager page", () => {
     await click(screen().getByRole("button", { name: "Ver passos" }));
     await settle(4);
     const panel = screen().getByRole("complementary", { name: "Corrigir o link de cancelar" });
-    expect(panel.querySelector(".thread-head__meta")?.textContent).toBe("Ada · Conversa direta · Você pediu");
+    expect(metaParts(panel)).toEqual(["Ada", "Conversa direta", "Você pediu"]);
     // Estado, Tempo, Usando agora; where it runs is nowhere, and no cost.
     const facts = [...panel.querySelectorAll(".tm-panel__facts dt")].map((d) => d.textContent);
     expect(facts).toEqual(["Estado", "Tempo", "Usando agora"]);
@@ -535,6 +545,21 @@ describe("the task manager page", () => {
     expect(every).toContain(TASK_MANAGER_POLL_MS);
 
     await click(within(panel).getByRole("button", { name: "Abrir na conversa" }));
+    await settle(4);
+    expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/dm/agent/${ADA_ID}`);
+  });
+
+  test("a row's Abrir na conversa opens its conversation, before Ver passos and Parar; a routine's run has none", async () => {
+    const { router } = await open(seedState({ taskManager: busy() }), "task-manager");
+    await openAgent("Ada");
+    expect(within(rowOf("Backups")).queryByRole("button", { name: /^Abrir na conversa/ })).toBeNull();
+    const acts = [...rowOf("Corrigir o link de cancelar").querySelectorAll(".tm-cell--act button")];
+    expect(acts.map((b) => b.getAttribute("title"))).toEqual(["Abrir na conversa", "Ver passos", "Parar"]);
+    await click(
+      within(rowOf("Corrigir o link de cancelar")).getByRole("button", {
+        name: "Abrir na conversa: Corrigir o link de cancelar",
+      }),
+    );
     await settle(4);
     expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/dm/agent/${ADA_ID}`);
   });
@@ -1067,7 +1092,7 @@ describe("an agent's tasks beside its DM", () => {
     expect(pill.getAttribute("aria-expanded")).toBe("true");
     const panel = screen().getByRole("complementary", { name: "Tarefas de Ada" });
     expect(panel.classList.contains("thread-panel")).toBe(true);
-    expect(panel.querySelector(".thread-head__meta")?.textContent).toBe("3 agora · 1 espera você");
+    expect(metaParts(panel)).toEqual(["3 agora", "1 espera você"]);
     const wells = [...panel.querySelectorAll(".tm-agentpanel__wells > div")].map((w) => w.textContent);
     expect(wells).toEqual(["Agora3", "Esperam você1", "Feitas hoje1"]);
     // People's tasks first, oldest first, then her routine's; this conversation's is marked.
@@ -1274,6 +1299,7 @@ describe("work agents asked of each other", () => {
     const panel = document.querySelector(".tm-panel") as HTMLElement;
     expect(panel.textContent).toContain("Se parar, Atlas fica sabendo que você parou");
     expect(within(panel).queryByRole("button", { name: "Abrir na conversa" })).toBeNull();
+    expect(within(rowOf("Vê o log de ontem")).queryByRole("button", { name: /^Abrir na conversa/ })).toBeNull();
   });
 
   test("the row of a run with helpers stops it and them in one action, after a confirmation", async () => {
@@ -1685,7 +1711,9 @@ describe("why a task waits", () => {
     const css = readFileSync(join(import.meta.dir, "../src/pages/task-manager.css"), "utf8");
     const narrow = css.slice(css.indexOf("@container tm (max-width: 760px)"));
     expect(narrow).toContain('.tm-row:not(.tm-row--agent, .tm-row--ended, [data-look="flat"]) > .tm-cell--state,');
-    expect(narrow).toMatch(/\.tm-row\[data-look="flat"\] \{\s*grid-template-columns: minmax\(0, 1fr\) auto auto 40px;/);
+    expect(narrow).toMatch(
+      /\.tm-row\[data-look="flat"\] \{\s*grid-template-columns: minmax\(0, 1fr\) auto auto var\(--tm-act\);/,
+    );
   });
 
   test("a paused conversation says how long it has been paused, never a clock of days", async () => {

@@ -1312,9 +1312,10 @@ describe("named agents, a lone agent's follow-ups and system lines", () => {
           userId: f.owner.id,
           ttlMs: 6000,
         });
-      const started = Date.now();
       await route(quiet().strategy, m.id, { quietMs: ROUTER_QUIET_MS, quietByTyping: true, pubsub: f.pubsub });
-      return Date.now() - started;
+      // From the message's own time, which the router's wait counts from: on a slow machine the insert before the
+      // call takes tens of milliseconds, which a clock started after it would take off the wait.
+      return Date.now() - m.createdAt.getTime();
     };
     expect(await timed("ada, como vai a campanha")).toBeLessThan(TYPING_GRACE_MS - 200);
     expect(await timed("alguém viu a campanha")).toBeGreaterThanOrEqual(TYPING_GRACE_MS - 50);

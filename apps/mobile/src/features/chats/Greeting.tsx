@@ -24,7 +24,6 @@ import { useDirectory } from "../shared/hooks";
 import { agentLook, firstName, greetingKey } from "../shared/logic";
 import { useSurface } from "../shared/parts";
 import { FIRST_AGENT_EXAMPLES } from "./examples";
-import { Arrive } from "./HomeEntrance";
 import { type FinishedItem, finishedKey, greetingLine } from "./now";
 
 /** The look of an agent still to be born (the new-agent sheet and the empty state). */
@@ -70,7 +69,6 @@ export function Greeting({
   finished,
   onFinishedPress,
   after,
-  arrive = { armed: false, play: false },
 }: {
   working: readonly string[];
   /** The newest thing an agent finished (null: nothing new). */
@@ -79,8 +77,6 @@ export function Greeting({
   onFinishedPress?: (f: FinishedItem) => void;
   /** Under it, on the sky: the way to ask the right hand (`RightHandAsk`). */
   after?: ReactNode;
-  /** Conversas' arrival after the splash (`useHomeEntrance`): the greeting's words rise first, `after` on its own. */
-  arrive?: { armed: boolean; play: boolean };
 }) {
   const { t } = useTranslation();
   const dir = useDirectory();
@@ -111,7 +107,7 @@ export function Greeting({
   );
   return (
     <View style={styles.mini}>
-      <Arrive {...arrive} rise={12} duration={520}>
+      <View>
         <Text variant="body" tone="ink2" numberOfLines={1}>
           {greeting}
         </Text>
@@ -149,7 +145,7 @@ export function Greeting({
             )}
           </View>
         )}
-      </Arrive>
+      </View>
       {after ? <View style={styles.after}>{after}</View> : null}
     </View>
   );

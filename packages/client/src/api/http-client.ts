@@ -193,6 +193,7 @@ import type {
   OrgPlanUsage,
   OrgRoles,
   OrgSettings,
+  OwnOAuthClient,
   PageTarget,
   PendingReturn,
   PeopleUsage,
@@ -667,6 +668,9 @@ export function createHttpApi(options: TransportOptions = {}): HttpApi {
         (await nullOn(404, () => request<{ publicKey: string }>("/api/app/push/web")))?.publicKey ?? null,
       register: (input) => request<void>("/api/app/push/devices", { json: input }),
       unregister: (token) => request<void>("/api/app/push/devices/forget", { json: { token } }),
+      liveActivity: (input) => request<void>("/api/app/push/live-activity", { json: input }),
+      liveActivityOff: (installId) =>
+        request<void>("/api/app/push/live-activity", { method: "DELETE", json: { installId } }),
       stale: async (ids) => (await request<{ stale: string[] }>("/api/app/push/stale", { json: { ids } })).stale,
     },
     orgs: {
@@ -700,6 +704,9 @@ export function createHttpApi(options: TransportOptions = {}): HttpApi {
         request<{ url: string; expiresAt: string }>(`${org(orgId)}/billing-link`, {
           json: { from, returnTo, ...(plan ? { plan } : {}) },
         }),
+      movePlan: async (orgId, to) => {
+        await request(`${org(orgId)}/plan-move`, { json: { to } });
+      },
       limits: (orgId) => request<WorkspaceLimits>(`${org(orgId)}/limits`),
       updateMe: (orgId, input) => request<Person>(`${org(orgId)}/me`, { method: "PATCH", json: input }),
       setStatus: (orgId, input) => request<Person>(`${org(orgId)}/me/status`, { method: "PUT", json: input }),
@@ -1610,14 +1617,14 @@ export function createHttpApi(options: TransportOptions = {}): HttpApi {
         const qs = params.toString();
         return `${base}${org(orgId)}/artifacts/${enc(id)}/file${qs ? `?${qs}` : ""}`;
       },
-      upload: (orgId, file, options = {}) => {
+      upload: (orgId, file, options = {}, upload) => {
         const form = new FormData();
         form.append("file", file, file.name);
         if (options.title) form.append("title", options.title);
         if (options.channelId) form.append("channelId", options.channelId);
         if (options.threadId) form.append("threadId", options.threadId);
         if (options.folderId) form.append("folderId", options.folderId);
-        return files.upload<ArtifactDetail>(`${org(orgId)}/artifacts/files`, form);
+        return files.upload<ArtifactDetail>(`${org(orgId)}/artifacts/files`, form, upload);
       },
       uploadVersion: (orgId, id, file, options = {}) => {
         const form = new FormData();
@@ -1630,8 +1637,8 @@ export function createHttpApi(options: TransportOptions = {}): HttpApi {
       create: (orgId, input) => request<ArtifactDetail>(`${org(orgId)}/artifacts`, { json: input }),
       update: (orgId, id, input) =>
         request<ArtifactDetail>(`${org(orgId)}/artifacts/${enc(id)}/versions`, { json: input }),
-      setSharing: (orgId, id, sharing) =>
-        request<Artifact>(`${org(orgId)}/artifacts/${enc(id)}/sharing`, { method: "PUT", json: sharing }),
+      setAccess: (orgId, id, access) =>
+        request<Artifact>(`${org(orgId)}/artifacts/${enc(id)}/access`, { method: "PUT", json: access }),
       remove: (orgId, id) => request<void>(`${org(orgId)}/artifacts/${enc(id)}`, { method: "DELETE" }),
       rename: (orgId, id, title) =>
         request<Artifact>(`${org(orgId)}/artifacts/${enc(id)}`, { method: "PATCH", json: { title } }),
@@ -1988,6 +1995,12 @@ export function createHttpApi(options: TransportOptions = {}): HttpApi {
         }),
       disconnect: (orgId, serverId) =>
         request<void>(`${org(orgId)}/connectors/custom/${enc(serverId)}`, { method: "DELETE" }),
+      ownClient: (orgId, serverUrl) =>
+        request<OwnOAuthClient>(`${org(orgId)}/connector-oauth-clients?serverUrl=${enc(serverUrl)}`),
+      setOwnClient: (orgId, input) =>
+        request<OwnOAuthClient>(`${org(orgId)}/connector-oauth-clients`, { method: "PUT", json: input }),
+      removeOwnClient: (orgId, issuer) =>
+        request<void>(`${org(orgId)}/connector-oauth-clients?issuer=${enc(issuer)}`, { method: "DELETE" }),
     },
     questions: {
       answer: (orgId, questionId, input) =>

@@ -107,6 +107,11 @@ export const agentRuns = pgTable(
     /** Thread the agent answers in (the trigger's thread, or the trigger itself when it is top-level). */
     threadRootId: uuid().notNull(),
     triggerMessageId: uuid().notNull(),
+    /**
+     * Asked in a channel's main timeline, it answers in the thread under its trigger (`replyThreadOf`): the channel's
+     * `reply_in_threads` when the run was created, so turning it off or on never moves a run (ADR 0214).
+     */
+    replyInThread: boolean().notNull().default(false),
     trigger: agentRunTriggerEnum().notNull(),
     /** Hop of the reply this run will post (trigger hop + 1). */
     hop: integer().notNull(),
@@ -221,6 +226,12 @@ export const agentRuns = pgTable(
     // The task manager's count of today's finished tasks, asked at every poll: only today's rows read, not every run
     // the workspace ever finished. Built CONCURRENTLY (its migration), as agent_runs is large.
     index("agent_runs_done_finished_idx").on(t.orgId, t.finishedAt).where(sql`${t.status} = 'done'`),
+    // Runs still holding unread messages, found by the inbox sweep (`sweepEndedInboxes`) every tick; the predicate is
+    // the sweep's own expression, so the planner matches it. Not keyed on updated_at, which every update moves: that
+    // would make all of agent_runs' updates non-HOT.
+    index("agent_runs_inbox_idx")
+      .on(t.status)
+      .where(sql`cardinality(${t.pendingMessageIds}) + cardinality(${t.afterMessageIds}) > 0`),
   ],
 );
 
@@ -348,6 +359,13 @@ export const agentRunSteps = pgTable(
     unique().on(t.runId, t.seq),
     // The operator's work analytics look up a run's waits for room among all its steps.
     index().on(t.runId).where(sql`${t.kind} = 'error' and ${t.data}->>'reason' = 'brain_unavailable'`),
+    // The same lookup for a run's waits on its provider. An index of its own: the planner reads rows through a partial
+    // index only for a condition it can prove from the index's, and one reason by equality is all it proves here.
+    // Built concurrently, as the next one is.
+    index("agent_run_steps_provider_outage_idx")
+      .on(t.runId)
+      .where(sql`${t.kind} = 'error' and ${t.data}->>'reason' = 'provider_outage'`)
+      .concurrently(),
     // A workspace's tool calls in a range of dates, for the operator API (only those steps are indexed). Built
     // concurrently: every step of every run is a row here, and a plain build keeps them all waiting until it ends.
     index("agent_run_steps_tool_calls_idx").on(t.orgId, t.createdAt).where(sql`${t.kind} = 'tool_call'`).concurrently(),
@@ -607,6 +625,12 @@ export const approvals = pgTable(
     origin: jsonb().$type<Record<string, unknown>>(),
     status: approvalStatusEnum().notNull().default("pending"),
     ownerUserId: text(),
+    /**
+     * The agent's owner role when it asked (`agents.owner_role_id`, ADR 0085 addendum of 2026-11-21), beside
+     * `owner_user_id`: whoever holds it when deciding decides. No foreign key, like `owner_user_id`: a deleted role
+     * simply matches nobody.
+     */
+    ownerRoleId: uuid(),
     decidedByUserId: text(),
     decidedAt: timestamp({ withTimezone: true }),
     /** Why it was refused (fed back to the model and to agent lessons). */

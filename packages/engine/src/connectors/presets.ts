@@ -13,7 +13,8 @@ import { canonicalResource } from "./oauth-mcp";
  *
  * A preset marked `soon` is one whose vendor doesn't accept the registration
  * yet (its redirect URI or client name, or registration itself is limited to
- * clients the vendor approved); it stays `soon` until the vendor does.
+ * clients the vendor approved); it stays `soon` until the vendor does. Meta
+ * Ads isn't: it takes an admin's own Meta app (ADR 0016, 2026-11-21).
  * Calendly accepts only letters, digits, hyphens and spaces in the client
  * name: `ensureOAuthClient` registers it again without the dot.
  *
@@ -948,8 +949,9 @@ export const MCP_PRESETS: readonly McpPreset[] = [
     label: "Meta Ads",
     description: "Meta (Facebook and Instagram) ad campaigns and results.",
     icon: "meta",
+    // Meta takes only apps a business made in Meta for Developers: without this server's own Meta app (the native
+    // connector, ADR 0170), an admin pastes theirs (`setOwnOAuthClient`).
     serverUrl: "https://mcp.facebook.com/ads",
-    soon: true,
   },
   {
     id: "klaviyo",

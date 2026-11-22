@@ -52,7 +52,6 @@ describe("one-click MCP connectors", () => {
       "intercom",
       "intercom-eu",
       "mercadopago",
-      "meta-ads",
       "revenuecat",
       "semrush",
       "square",

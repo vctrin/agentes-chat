@@ -7,7 +7,7 @@ import type { MergeDone } from "./command-policy";
  */
 
 /** Bumped on breaking changes; the server refuses runners older than `MIN_RUNNER_PROTOCOL`. */
-export const MACHINE_PROTOCOL_VERSION = 74;
+export const MACHINE_PROTOCOL_VERSION = 76;
 export const MIN_RUNNER_PROTOCOL = 1;
 /** From this protocol on, requests carry `agent` and each agent works in its own folder. */
 export const AGENT_FOLDERS_PROTOCOL = 2;
@@ -290,6 +290,8 @@ export interface MachineSize {
   memoryGb: number;
   diskGb: number;
   limit?: { cpus: number; memoryGb: number };
+  /** `TASK_LIMIT_PROTOCOL`: the background tasks it runs at once. */
+  maxTasks?: number;
 }
 
 /**
@@ -2098,6 +2100,8 @@ export const CURSOR_MODEL_LIMITS = { models: 60, id: 80, label: 80 } as const;
  */
 export interface BrainTurnTimings {
   warm: boolean;
+  /** Not `warm`: why the turn started a new process (`BRAIN_COLD_CAUSES`). */
+  cold?: BrainColdCause;
   initMs?: number;
   firstEventMs?: number;
   firstTokenMs?: number;
@@ -2107,6 +2111,26 @@ export interface BrainTurnTimings {
   thinkingBlocks?: number;
   thinkingChars?: number;
 }
+
+/**
+ * Why a turn started a new Claude Code process: a session that never ran on this runner (a new conversation, or a
+ * fresh session the server started for an old one), or the end of the session's last process: idle past its limit,
+ * closed for another conversation of the agent (its cap) or for memory, another launch asked (folder, permissions,
+ * account, sign-in), a warm start with another system text, exited by itself, closed after its turn (canceled,
+ * died, a background turn), or a session that ran before with no process left in this runner (it restarted).
+ */
+export const BRAIN_COLD_CAUSES = [
+  "new_session",
+  "idle",
+  "cap",
+  "memory",
+  "settings",
+  "warm_mismatch",
+  "exited",
+  "closed",
+  "restart",
+] as const;
+export type BrainColdCause = (typeof BRAIN_COLD_CAUSES)[number];
 
 /** The measures of `BrainTurnTimings` past `warm`, each a whole number from 0 up to a day. */
 export const BRAIN_TURN_MEASURES = [
@@ -2347,6 +2371,22 @@ export const ROUTE_LIMITS = { system: 8000, prompt: 32_000, schema: 8000 } as co
  * starts its CLI as before; a turn whose launch differs starts its own. The server sends it to no older runner.
  */
 export const BRAIN_WARM_PROTOCOL = 74;
+
+/**
+ * Background tasks at once, from the apps (protocol 75): `hello.size.maxTasks` and `runner.state.maxTasks` say the
+ * computer's limit, and `limits.set` changes it as its owner asked. An older runner says none: it runs 3, its old
+ * default, unless its config says otherwise.
+ */
+export const TASK_LIMIT_PROTOCOL = 75;
+
+/**
+ * Protocol 76 (ADR 0143): outside system mode the runner brings its own Antigravity CLI (`AGY_PIN`, at least that
+ * version) where the person's is older or missing and Gemini thinks there, so a computer's Gemini models follow the
+ * app's version. An older runner runs whatever `agy` the person installed.
+ */
+export const AGY_COPY_PROTOCOL = 76;
+/** The tasks a computer may run at once (`maxConcurrentTasks` in the runner's config). */
+export const TASK_LIMIT_BOUNDS = [1, 20] as const;
 
 /** What `brain.turn` would start its CLI with, without the turn's own words (no prompt, system text or run). */
 export type BrainWarmRequest = Pick<
@@ -2837,6 +2877,8 @@ export type MachineRequest = (
   | { op: "phone.pair.cancel"; pairingId: string }
   /** `REMOTE_PAUSE_PROTOCOL`: pause (until `until`, null: until resumed) or resume, for the person `by`. */
   | { op: "pause.set"; paused: boolean; until?: string | null; by: string }
+  /** `TASK_LIMIT_PROTOCOL`: the background tasks it runs at once, from now on (stored in its config). */
+  | { op: "limits.set"; maxTasks: number }
   /**
    * A phone guide is open and waits for a phone: for the next minute, a Windows runner also looks for a plugged phone
    * Windows has no USB driver for (adb never lists one) and reports it as `no_driver`. From `IPHONE_DEV_MODE_PROTOCOL`
@@ -2942,6 +2984,7 @@ export const MACHINE_OPS: readonly MachineOp[] = [
   "phone.pair.status",
   "phone.pair.cancel",
   "pause.set",
+  "limits.set",
   "phone.look",
   "phone.wifi",
   "keep.start",
@@ -3115,6 +3158,7 @@ export interface MachineReplies {
   "phone.pair.status": PhonePairing;
   "phone.pair.cancel": { canceled: boolean };
   "pause.set": { paused: RunnerPause };
+  "limits.set": { maxTasks: number };
   "phone.look": { looking: boolean };
   "phone.wifi": { available: WifiIphone[] };
   "keep.start": { held: true };
@@ -3313,7 +3357,12 @@ export type RunnerFrame =
   /** Protocol 8: a `brain.turn` sent its last event. */
   | { type: "brain.done"; runId: string }
   /** Protocol 9: the pause state changed on the machine (paused, resumed, new `until`). */
-  | { type: "runner.state"; paused: RunnerPause }
+  | {
+      type: "runner.state";
+      paused: RunnerPause;
+      /** `TASK_LIMIT_PROTOCOL`: the tasks it runs at once, sent when that changed on the computer. */
+      maxTasks?: number;
+    }
   /** Protocol 10: what the machine allows changed (the person granted, removed, or turned a tool on or off). */
   | { type: "access.changed"; access: RunnerAccess }
   /**
@@ -3588,6 +3637,11 @@ export function parseExecutors(v: Record<string, unknown>): NonNullable<RunnerIn
 export const CLI_ERROR_MAX = 300;
 /** `executors.broken.claude` on Windows when Git for Windows, which Claude Code needs there, isn't on the computer. */
 export const CLI_GIT_MISSING = "git_missing";
+/**
+ * `executors.broken.<cli>` in system mode for Cursor's, Grok Build or the Antigravity CLI found only in root's own
+ * `~/.local/bin`, where its installer puts it and no agent's user can run it.
+ */
+export const CLI_HOME_ONLY = "home_only";
 
 /** `hello.accounts` (protocol 13): at most `MAX_MACHINE_ACCOUNTS`, ids and kinds checked, short words only. */
 export function parseAccounts(v: unknown[]): RunnerAccountInfo[] {
@@ -3738,7 +3792,17 @@ export function parseBrainEvent(v: unknown): WireBrainEvent | null {
         type: "done",
         text: v.text.slice(0, BRAIN_LIMITS.doneText),
         ...(session ? { session } : {}),
-        ...(t ? { timings: { warm: t.warm as boolean, ...Object.fromEntries(measures) } } : {}),
+        ...(t
+          ? {
+              timings: {
+                warm: t.warm as boolean,
+                ...(!t.warm && (BRAIN_COLD_CAUSES as readonly unknown[]).includes(t.cold)
+                  ? { cold: t.cold as BrainColdCause }
+                  : {}),
+                ...Object.fromEntries(measures),
+              },
+            }
+          : {}),
       };
     }
     case "error":
@@ -3921,7 +3985,8 @@ export function parseRunnerFrame(raw: string): RunnerFrame | null {
     }
     case "runner.state": {
       const paused = parsePause(f.paused);
-      return paused ? { type: "runner.state", paused } : null;
+      if (!paused) return null;
+      return { type: "runner.state", paused, ...(taskLimit(f.maxTasks) ? { maxTasks: f.maxTasks } : {}) };
     }
     case "access.changed": {
       const access = parseAccess(f.access);
@@ -4588,8 +4653,16 @@ export function parseMachineSize(v: unknown): MachineSize | null {
     isObject(l) && inRange(l.cpus, [1, v.cpus]) && between(l.memoryGb, 0, v.memoryGb)
       ? { limit: { cpus: l.cpus, memoryGb: l.memoryGb } }
       : {};
-  return { cpus: v.cpus, memoryGb: v.memoryGb, diskGb: v.diskGb, ...limit };
+  return {
+    cpus: v.cpus,
+    memoryGb: v.memoryGb,
+    diskGb: v.diskGb,
+    ...limit,
+    ...(taskLimit(v.maxTasks) ? { maxTasks: v.maxTasks } : {}),
+  };
 }
+
+const taskLimit = (v: unknown): v is number => inRange(v, TASK_LIMIT_BOUNDS);
 
 /** `pong.load` (protocol 22): sane numbers, else none. */
 export function parseMachineLoad(v: unknown): MachineLoad | null {

@@ -18,6 +18,7 @@ import {
   groupTasks,
   helpersOf,
   hiddenCount,
+  opensInChat,
   returnCanceledText,
   returnPlace,
   shownCauses,
@@ -248,6 +249,7 @@ export function TaskManagerPage({
       stopping={stopping.has(task.runId)}
       onSelect={() => pick(task.runId)}
       onSteps={() => setPanel(task.runId)}
+      onOpen={() => openTask(task)}
       onStop={() => stopOne(task)}
     />
   );
@@ -589,7 +591,7 @@ export function TaskManagerPage({
       )}
 
       {/* Hung from the shell, like a thread's panel beside its channel: inside the page it would scroll away with the
-          list (the page's entrance animation keeps the page a containing block). */}
+          list (the page is a containing block, layout.css `.shell__main`). */}
       {panel &&
         createPortal(
           <TaskPanel
@@ -744,10 +746,10 @@ function TaskSection({
 
 /**
  * One task, one line: what it is (the whole row picks it) and what it is about, its state, what it uses now, its time
- * (shaded as it grows, but not on a wait with a known reason: that isn't stuck) and Parar. What comes next of a wait
- * and what it does in its program are in its tip. `grouped` sits under its agent's row; `flat` (a routine's
- * background run, work agents asked) shows its agent's face, and its state as a mark when the columns don't fit;
- * `agent` is the list of one agent's tasks (its card chosen).
+ * (shaded as it grows, but not on a wait with a known reason: that isn't stuck), Abrir na conversa, Ver passos and
+ * Parar. What comes next of a wait and what it does in its program are in its tip. `grouped` sits under its agent's
+ * row; `flat` (a routine's background run, work agents asked) shows its agent's face, and its state as a mark when the
+ * columns don't fit; `agent` is the list of one agent's tasks (its card chosen).
  */
 function TaskRow({
   task,
@@ -762,6 +764,7 @@ function TaskRow({
   stopping,
   onSelect,
   onSteps,
+  onOpen,
   onStop,
 }: {
   task: ManagedTask;
@@ -780,6 +783,8 @@ function TaskRow({
   onSelect: () => void;
   /** "Ver passos": its panel. */
   onSteps: () => void;
+  /** "Abrir na conversa", where it has one. */
+  onOpen: () => void;
   onStop: () => void;
 }) {
   const { t } = useTranslation();
@@ -829,6 +834,18 @@ function TaskRow({
       </span>
       <TaskTime task={task} now={now} />
       <span className="tm-cell tm-cell--act">
+        {opensInChat(task) && (
+          <Button
+            size="sm"
+            variant="ghost"
+            iconOnly
+            icon="message"
+            className="tm-open"
+            aria-label={`${t("taskManager.actions.open")}: ${title}`}
+            title={t("taskManager.actions.open")}
+            onClick={onOpen}
+          />
+        )}
         <Button
           size="sm"
           variant="ghost"

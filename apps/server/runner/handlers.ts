@@ -7,6 +7,7 @@ import {
   type AgentScope,
   browserSetupOf,
   type FileEntry,
+  inRange,
   isStreamId,
   isTerminalSize,
   MAX_INLINE_FILE_BYTES,
@@ -19,6 +20,7 @@ import {
   type RunnerPause,
   type RunnerTools,
   STEER_LIMITS,
+  TASK_LIMIT_BOUNDS,
 } from "@agenteschat/adapters/machine-protocol";
 import { redactSecrets } from "@agenteschat/adapters/secret-box";
 import { realFoldersFor } from "./access";
@@ -248,6 +250,8 @@ export const OP_ROUTES: Readonly<Record<MachineOp, "machine" | "agent">> = {
   "phone.pair.cancel": "machine",
   // The computer's own pause lives in its config, root's.
   "pause.set": "machine",
+  // So is its task limit; root tells each worker (`stateChanged`).
+  "limits.set": "machine",
   "phone.look": "machine",
   // The Mac's own pick of iPhones on its Wi-Fi, kept beside its phones' locks.
   "phone.wifi": "machine",
@@ -336,6 +340,8 @@ export interface HandlerContext {
   paused?: () => boolean;
   /** `REMOTE_PAUSE_PROTOCOL`: pause (`until` null: until resumed) or resume as asked from the apps; absent: refused. */
   setPause?: (paused: boolean, until: string | null, by: string) => RunnerPause;
+  /** `TASK_LIMIT_PROTOCOL`: the background tasks it runs at once, stored in its config; answers the limit kept. */
+  setTaskLimit?: (maxTasks: number) => number;
   /** System mode: this process is root and answers only the `machine` ops of `OP_ROUTES` itself. */
   systemMode?: () => boolean;
   /** System mode: runs an `agent` op in its agent's worker; without it those ops are refused. */
@@ -683,6 +689,14 @@ async function routeRequest(ctx: HandlerContext, req: MachineRequest, scope: Req
     const by = requireString(req.by, "by");
     const until = req.paused && typeof req.until === "string" ? req.until : null;
     return { paused: ctx.setPause(req.paused === true, until, by) } satisfies MachineReplies["pause.set"];
+  }
+  if (req.op === "limits.set") {
+    if (!ctx.setTaskLimit)
+      throw new RunnerError("unsupported", "This runner's task limit can't be changed from the apps.");
+    if (!inRange(req.maxTasks, TASK_LIMIT_BOUNDS)) {
+      throw new RunnerError("bad_request", `maxTasks must be a whole number from ${TASK_LIMIT_BOUNDS.join(" to ")}`);
+    }
+    return { maxTasks: ctx.setTaskLimit(req.maxTasks) } satisfies MachineReplies["limits.set"];
   }
   // Protocol 49: an agent's (or a profile's) live view socket, this process's in every mode (ADR 0040 §7.1).
   if (req.op === "browser.view.open") return openBrowserView(ctx, req);

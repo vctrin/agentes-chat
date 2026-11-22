@@ -441,6 +441,20 @@ const RunTimings = z
         }),
       )
       .openapi({ description: `By brain, then model. At most ${RUN_TIMINGS_ROWS_MAX}: the ones with most turns.` }),
+    coldStarts: z
+      .array(
+        z.object({
+          ...TimingsGroup,
+          cause: z.string().openapi({
+            description:
+              "Why the turn started a new process: `new_session` (a session that never ran there: a new conversation, or a fresh session for an old one), `idle` (its process closed after its idle limit), `cap` (closed for another conversation of the agent), `memory` (closed to make room), `settings` (another launch: folder, permissions, account, sign-in), `warm_mismatch` (a warm start had another system text), `exited`, `closed` (after its last turn: canceled, died, a background turn), `restart` (it ran before, no process left: the runner restarted), `unsaid` (an older runner). Ignore values you don't know.",
+          }),
+          turns: Count,
+        }),
+      )
+      .openapi({
+        description: `Cold computer turns by brain, model and cause, most first. At most ${RUN_TIMINGS_ROWS_MAX}.`,
+      }),
     waits: z
       .array(
         z.object({

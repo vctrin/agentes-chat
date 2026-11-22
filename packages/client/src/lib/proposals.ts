@@ -12,8 +12,10 @@ import type {
   ProposalSettingLine,
 } from "../api/types";
 import { audienceAdmits } from "./audience";
+import { effortLevel } from "./brain-advanced";
 import { formatTime, formatUsd, joinNames } from "./format";
 import { agentGrammar } from "./grammar";
+import { isAuto } from "./providers";
 import { holdersOf } from "./roles";
 import { scopeText } from "./scopes";
 import { modeKey } from "./workspace-mode";
@@ -330,6 +332,10 @@ export function settingLineText(
     switch (line.field) {
       case "model":
         return typeof v === "string" && v ? names.model(v) : t("rightHand.value.none");
+      case "effort":
+        return t(
+          `agentPage.work.brain.efforts.${isAuto(v as string) ? "auto" : typeof v === "string" && v ? effortLevel(v) : "none"}`,
+        );
       case "budget":
         return typeof v === "number" ? formatUsd(locale, v / NANO_PER_USD) : t("rightHand.value.budgetDefault");
       case "owner":
@@ -375,7 +381,13 @@ export function settingLineText(
         : (t as unknown as (key: string) => string)(
             `rightHand.field.${line.field === "delete" ? "archive" : line.field}`,
           );
-  return { field, from: value(line.from, "from"), to: value(line.to, "to") };
+  const to = value(line.to, "to");
+  // A budget at or below the month's spend stops the agent the moment it is applied: the card says so.
+  return {
+    field,
+    from: value(line.from, "from"),
+    to: line.pausesNow ? `${to} · ${t("rightHand.value.pausesNow")}` : to,
+  };
 }
 
 /**

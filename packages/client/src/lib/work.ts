@@ -785,15 +785,16 @@ export const STEP_WORDS_AFTER_MS = 5000;
  * The waiting row's step line: what the agent does right now, verb first ("Usando o navegador · console.example.com…",
  * "Mexendo nos arquivos do PC · refresh.ts…"), from the same live work as its tool block; "Pensando…" while no step
  * runs; "Esperando aprovação…" while its last call waits on a person. `step`: the brain's own words for its latest call
- * (quoted), or its own call no `agent.tool` told.
+ * (quoted), or its own call no `agent.tool` told. `intent`: what it is about to do (`LiveRun.intent`), for "Pensando…".
  */
-export function waitStep(t: TFunction, work: LiveWork[] | undefined, step?: LiveStep): string {
+export function waitStep(t: TFunction, work: LiveWork[] | undefined, step?: LiveStep, intent?: string): string {
   const last = (work ?? []).findLast((w) => w.kind === "call");
   if (last?.kind === "call" && last.held) return t("chat.wait.held");
   if (step?.said) return t("chat.wait.said", { text: step.said });
   const now = toolNow(toolItemsLive(work ?? []));
   if (now?.state !== "run") {
-    return step?.tool ? `${capitalize(activityVerb(t, toolActivity(step.tool)))}…` : t("chat.wait.thinking");
+    if (step?.tool) return `${capitalize(activityVerb(t, toolActivity(step.tool)))}…`;
+    return intent ? `${capitalize(intent)}…` : t("chat.wait.thinking");
   }
   const verb = capitalize(activityVerb(t, now));
   // The folded line keeps its first call's hint; the step line names the call running now, one the block lists: a call
@@ -806,19 +807,21 @@ export function waitStep(t: TFunction, work: LiveWork[] | undefined, step?: Live
 
 /**
  * The bar's words for one agent at work: its step with a lower-case start, after its name ("Nina consultando o Email ·
- * …"), or "escrevendo…" while it writes (`running`: its words show whole once posted) and no call runs. Its own words
+ * …"), or "escrevendo…" while it writes (`running`: its words show whole once posted) and no call runs, both with
+ * what it is about to do in their place when the server wrote it (`intent`). Its own words
  * only once the turn has gone on for `STEP_WORDS_AFTER_MS`.
  */
 export function barStep(
   t: TFunction,
-  run: Pick<LiveRun, "status" | "work" | "step" | "startedAt" | "workingSince">,
+  run: Pick<LiveRun, "status" | "work" | "step" | "startedAt" | "workingSince" | "intent">,
   locale?: string,
   now = Date.now(),
 ): string {
   const calling = (run.work ?? []).some((w) => w.kind === "call" && w.running);
-  if (!calling && run.status === "running") return `${activityVerb(t, { kind: "writing" })}…`;
+  if (!calling && run.status === "running")
+    return run.intent ? `${lowerFirst(run.intent, locale)}…` : `${activityVerb(t, { kind: "writing" })}…`;
   const long = now - (run.workingSince ?? run.startedAt ?? now) >= STEP_WORDS_AFTER_MS;
-  return lowerFirst(waitStep(t, run.work, long ? run.step : undefined), locale);
+  return lowerFirst(waitStep(t, run.work, long ? run.step : undefined, run.intent), locale);
 }
 
 export { formatLineTime } from "./format";

@@ -2,12 +2,14 @@ import {
   browserHandoffOf,
   browserTrailOf,
   desktopTrailOf,
+  isPinnedSelection,
   keys,
   type Message,
   type MessageReceipt,
   messageLiveRef,
   type ReplyRef,
   type RunConsultation,
+  resolvedOf,
   type ScreenKind,
   type SurfaceLinks,
   type ThreadInfo,
@@ -59,9 +61,9 @@ import { type ReplyStop, showsActivity, splitCanceled } from "@agenteschat/clien
 import { type AgentColorName, mixHex } from "@agenteschat/ui/agent/engine";
 import { WALLPAPER_LIFT } from "@agenteschat/ui/sky/wallpaper";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { memo, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { memo, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { type GestureResponderEvent, Pressable, StyleSheet, View } from "react-native";
+import { type GestureResponderEvent, Keyboard, Pressable, StyleSheet, View } from "react-native";
 import Animated, {
   Easing,
   type EntryExitAnimationFunction,
@@ -90,6 +92,7 @@ import {
   useTheme,
   useToast,
 } from "@/ui";
+import { Shake } from "@/ui/auth/Shake";
 import { router } from "@/ui/navigation";
 import { RADIUS } from "@/ui/radius";
 import { InstructionProposals } from "../agents/InstructionProposalCard";
@@ -108,7 +111,7 @@ import { WaitToolOffAction } from "../devices/ToolOneClick";
 import { localFilesOf } from "../files/local-files";
 import { LocalFiles, MessageFiles } from "../files/MessageFiles";
 import { consultationHref, routineHref } from "../links/logic";
-import { MessageAbout } from "../live-files/talk/AboutLine";
+import { MessageAbout, ResolvedLine } from "../live-files/talk/AboutLine";
 import { surfaceTagText } from "../me/surface";
 import { DecisionCard, MissionCard, PlanCard, ReviewCard, SetupFailedCard } from "../missions/cards";
 import { AwayPill, BrainWait } from "../outages/WaitCard";
@@ -119,14 +122,16 @@ import { type BubbleHead, BubbleHeadContext, type BubblePart, BubblePartContext 
 import { AgentFace, Face, withAgentFaces } from "../shared/Face";
 import { useColors, useOrgId, useWhen } from "../shared/hooks";
 import { agentLook } from "../shared/logic";
+import { ownsIn } from "../shared/owner";
 import { tapHaptic } from "../shared/parts";
 import { VoiceMessage } from "../voice/VoiceMessage";
 import { FilesTextOnlyFix, ReceiptMark } from "./AgentReceipts";
 import { secretRequestOf } from "./ask-store";
+import { useBubbleCap } from "./bubble-cap";
 import { ChatMedia } from "./ChatMedia";
-import { ClippedMessage } from "./ClippedMessage";
+import { ClippedMessage, OpenedMessagesContext } from "./ClippedMessage";
 import { ConsultPairRow, useRunConsults } from "./ConsultGroup";
-import { ApprovalInline, QuestionCard, ThreadLink } from "./cards";
+import { ApprovalInline, QuestionCard, ThreadLink, ThreadReplyingLink } from "./cards";
 import { FeedbackOfferRow } from "./FeedbackOffer";
 import { HandedTaskChips, IssueWorkCard } from "./issue-work";
 import { keepOpen, keptOpen } from "./kept-sizes";
@@ -194,10 +199,15 @@ const TRAIL_RECENT_MS = 12 * 60 * 60_000;
  * What the row holds when it mounts just shows (`skipEntering`): the list mounts a row again each time it comes back
  * into view, and a part that fades in when it changes (a receipt's mark, a decided request's outcome, an undone
  * action's line) faded in again on every scroll. What changes while the row shows still fades in.
+ *
+ * "See more" opening its message mounts the row again the same way, at its whole height from its first frame (the
+ * words' height and a table's columns are kept): grown in place, the bubble's frame stayed taller than its words, an
+ * empty block under the last line that pushed what follows away (seen on a phone).
  */
 export const MessageRow = memo(function MessageRow(props: RowProps) {
+  const opened = useContext(OpenedMessagesContext)?.has(props.message.id) === true;
   return (
-    <LayoutAnimationConfig skipEntering>
+    <LayoutAnimationConfig key={opened ? "opened" : "row"} skipEntering>
       <RowBody {...props} />
     </LayoutAnimationConfig>
   );
@@ -216,6 +226,8 @@ interface RowProps {
   meId: string | null;
   /** Its thread, when it is the root of one the conversation shows as a link. */
   thread?: ThreadInfo;
+  /** With no `thread` yet: the agents replying in the thread under it, comma-joined (ADR 0214). */
+  replying?: string | undefined;
   /** Absent where it is read only. */
   onLongPress?: (m: Message) => void;
   onRetry?: (m: Message) => void;
@@ -237,6 +249,7 @@ function RowBody({
   newTurn,
   meId,
   thread,
+  replying,
   onLongPress,
   onRetry,
   onQuote,
@@ -251,6 +264,25 @@ function RowBody({
   const { t, i18n } = useTranslation();
   // Mine and not sent for lack of a connection: it waits and goes by itself when the connection is back.
   const offline = useWaiting(m.local === "failed" ? m.clientId : null);
+  // The moment a send fails (not a row drawn already failed, nor one waiting for the connection): the row shakes
+  // once and the phone says so, once. A row that was ever on its way keeps the shaking view, so the saved copy
+  // taking its place never mounts the row again.
+  const failedNow = m.local === "failed" && !offline;
+  const sendId = m.clientId ?? m.id;
+  const failSeen = useRef({ id: sendId, failed: failedNow });
+  const [shook, setShook] = useState(false);
+  const [shakes, setShakes] = useState(Boolean(m.local));
+  if (m.local && !shakes) setShakes(true);
+  useEffect(() => {
+    const seen = failSeen.current;
+    failSeen.current = { id: sendId, failed: failedNow };
+    if (!failedNow) setShook(false);
+    else if (seen.id === sendId && !seen.failed) {
+      haptics.error();
+      setShook(true);
+    }
+  }, [sendId, failedNow]);
+  const shaking = (row: ReactNode) => (shakes ? <Shake when={shook}>{row}</Shake> : row);
   const dir = useRowDirectory();
   const c = useColors();
   const when = useWhen();
@@ -364,21 +396,23 @@ function RowBody({
   const lastTap = useRef(0);
   const [pop, setPop] = useState<{ x: number; y: number; at: number } | null>(null);
   const canReact = !readOnly && !m.local;
-  const onTap = canReact
-    ? (e: GestureResponderEvent) => {
-        const at = Date.now();
-        if (at - lastTap.current > DOUBLE_TAP_MS) {
-          lastTap.current = at;
-          return;
-        }
-        lastTap.current = 0;
-        haptics.light();
-        const mine = reactionPills(reactions, meId).find((p) => p.reaction === THUMBS)?.mine ?? false;
-        toggle.mutate({ reaction: THUMBS, on: !mine });
-        setPop({ x: e.nativeEvent.locationX, y: e.nativeEvent.locationY, at });
-        teachDoubleTap();
-      }
-    : undefined;
+  // The row takes the tap, so the list (`keyboardShouldPersistTaps="handled"`) never puts the keyboard away for it:
+  // the row does, as a tap on the conversation does in any chat.
+  const onTap = (e: GestureResponderEvent) => {
+    Keyboard.dismiss();
+    if (!canReact) return;
+    const at = Date.now();
+    if (at - lastTap.current > DOUBLE_TAP_MS) {
+      lastTap.current = at;
+      return;
+    }
+    lastTap.current = 0;
+    haptics.light();
+    const mine = reactionPills(reactions, meId).find((p) => p.reaction === THUMBS)?.mine ?? false;
+    toggle.mutate({ reaction: THUMBS, on: !mine });
+    setPop({ x: e.nativeEvent.locationX, y: e.nativeEvent.locationY, at });
+    teachDoubleTap();
+  };
   useEffect(() => {
     if (!pop) return;
     const timer = setTimeout(() => setPop(null), POP_MS);
@@ -449,7 +483,7 @@ function RowBody({
   const run = runAround(
     runAt,
     above ? hangsUnder(above, aboveThread, aboveReactions, meId) : false,
-    hangsUnder(m, Boolean(thread), cachedReactions.data, meId),
+    hangsUnder(m, Boolean(thread || replying), cachedReactions.data, meId),
   );
   // A card in a row of its own under the same author's words stands as far off them as in the same row.
   const cardRow = !body && !media && postedCard;
@@ -508,6 +542,8 @@ function RowBody({
   const quote = replyOf(meta);
   // About part of a live file (ADR 0199): its line over the message, a tap shows that part in the file.
   const liveRef = messageLiveRef(m);
+  // A comment with a pin on a picture, a video or a PDF, resolved (ADR 0208): who did it, under it.
+  const resolved = liveRef && !m.local && isPinnedSelection(liveRef.selection) ? resolvedOf(meta) : null;
   const myHandle = useRowMyHandle();
   const mentionsMe = !mine && mentionsReader({ body, meta }, myHandle);
 
@@ -532,12 +568,18 @@ function RowBody({
     </>
   );
   const missionDecision = decision ? <DecisionCard missionId={decision.missionId} decisionId={decision.id} /> : null;
-  // Under everything: the thread it started, its reactions and whether it went out.
+  // Under everything: who resolved it (a comment on a file), the thread it started, its reactions and whether it went
+  // out.
   const foot = (
     <>
+      {resolved ? <ResolvedLine resolved={resolved} end={onRight} /> : null}
       {thread && !meta?.missionStart ? (
         <View style={onRight ? styles.meEnd : undefined}>
           <ThreadLink thread={thread} />
+        </View>
+      ) : replying ? (
+        <View style={onRight ? styles.meEnd : undefined}>
+          <ThreadReplyingLink channelId={m.channelId} threadId={m.id} agentIds={replying.split(",")} />
         </View>
       ) : null}
       {readOnly ? null : (
@@ -573,6 +615,8 @@ function RowBody({
   // Someone else's bubble gives way to the times only when it is too wide for them (`useGiveWay`): its bubbles end
   // sooner than mine at the screen's edge, so that much room is there before it moves.
   const giveWay = useGiveWay(ROW_BODY_INSET.bubbles.right - BUBBLES_EDGE);
+  // Someone else's bubble never taller than what it holds (`useBubbleCap`).
+  const bubbleCap = useBubbleCap();
   // A compact row runs to the screen's edge: its face and words slide over with the pull, for its time.
   const slide = useSwipeSlide(compact);
 
@@ -635,7 +679,7 @@ function RowBody({
         <LocalFiles files={localFiles} align="end" sending={m.local === "pending"} />
       </View>
     ) : null;
-    return (
+    return shaking(
       <Pressable
         onPress={onTap}
         onLongPress={press}
@@ -703,7 +747,7 @@ function RowBody({
         </SwipeSlide>
         {swipeTime}
         {popNode}
-      </Pressable>
+      </Pressable>,
     );
   }
 
@@ -854,7 +898,13 @@ function RowBody({
   ) : choiceReply ? (
     choiceReply
   ) : body ? (
-    <ClippedMessage id={m.id} behind={behindWords} lead={talk ? saying(talk.lead) : undefined}>
+    <ClippedMessage
+      id={m.id}
+      behind={behindWords}
+      lead={talk ? saying(talk.lead) : undefined}
+      // In a bubble, where its words end keeps the bubble no taller than them (`useBubbleCap`).
+      onEnd={bubbled ? bubbleCap.onEnd : undefined}
+    >
       {saying(body)}
     </ClippedMessage>
   ) : null;
@@ -962,8 +1012,17 @@ function RowBody({
                     {pinLine}
                     {reportOpened}
                     <View
-                      onLayout={giveWay.onBubble}
-                      style={[lookRows.bubble, OTHER_RUN[run], { backgroundColor: otherBubble }, bubbleEdge]}
+                      onLayout={(e) => {
+                        giveWay.onBubble(e);
+                        bubbleCap.onBubble(e);
+                      }}
+                      style={[
+                        lookRows.bubble,
+                        OTHER_RUN[run],
+                        { backgroundColor: otherBubble },
+                        bubbleEdge,
+                        bubbleCap.capStyle,
+                      ]}
                     >
                       {!grouped && (look.names || tagged) ? who(true) : null}
                       {quote ? <QuotePlate reply={quote} onJump={onQuote} /> : null}
@@ -1222,6 +1281,8 @@ function StoppedLine({
       : (runErrorText(t, stopped.code) ?? t("mobile.chat.stopped.plain"));
   const author = m.author.id ? dir.agentById.get(m.author.id) : undefined;
   const owner = author?.ownerUserId ?? null;
+  // Holding the role that answers for it counts as its owner (ADR 0085, addendum of 2026-11-21).
+  const owns = ownsIn(dir.memberById, meId, author);
   const loaded = [
     ...(qc.getQueryData<Message[]>(keys.messages(orgId, m.channelId)) ?? []),
     ...((m.threadId && qc.getQueryData<Message[]>(keys.thread(orgId, m.channelId, m.threadId))) || []),
@@ -1231,7 +1292,7 @@ function StoppedLine({
     byMe ||
     mayStopRun(
       { agentId: m.author.id ?? "", threadId: m.threadId ?? m.id, triggerMessageId: null },
-      { meId, manageAgents: managesAgent(author), agentOwnerId: owner, messages: loaded },
+      { meId, manageAgents: managesAgent(author), agentOwnerId: owner, owns, messages: loaded },
     );
   // The agent works here again, or wrote after the stop: it went on, the stop offers nothing.
   const movedOn = useStopMovedOn(runId);

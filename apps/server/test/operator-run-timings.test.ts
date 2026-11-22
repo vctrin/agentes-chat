@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { rowsOf, schema, sql, tracingLogger } from "@agenteschat/db";
+import { rowsOf, schema, sql } from "@agenteschat/db";
+import { conditionWords, issuedBy } from "@agenteschat/db/testing";
 import { operatorRunTimings } from "@agenteschat/engine";
 import { createLogger } from "../src/logger";
 import { createOperatorApp } from "../src/operator/app";
@@ -72,21 +73,6 @@ async function ok<T = Record<string, unknown>>(res: Response) {
   return (await res.json()) as T;
 }
 const refusal = async (res: Response) => [res.status, ((await res.json()) as { error: { code: string } }).error.code];
-/** The statements `read` sent to the database, each on one line. */
-async function issuedBy(read: () => Promise<unknown>) {
-  const issued: string[] = [];
-  const logged = tracingLogger.logQuery;
-  tracingLogger.logQuery = (query?: string) => {
-    issued.push((query ?? "").replace(/\s+/g, " ").trim());
-    logged();
-  };
-  try {
-    await read();
-  } finally {
-    tracingLogger.logQuery = logged;
-  }
-  return issued;
-}
 
 type Rows = Record<string, unknown>[];
 type Timings = {
@@ -98,6 +84,7 @@ type Timings = {
   stages: Rows;
   stagesMore: boolean;
   computerStarts: Rows;
+  coldStarts: Rows;
   waits: Rows;
 };
 const timings = async (query: string) => ok<Timings>(await get(`/analytics/run-timings?${query}`));
@@ -107,10 +94,11 @@ type Claim = {
   queries: number;
   stages: { stage: string; ms: number; queries: number; parts?: { stage: string; ms: number; queries: number }[] }[];
   stagesCut: boolean;
-  computerTurns: ({ warm: boolean } & Record<string, number | null | boolean>)[];
+  computerTurns: ({ warm: boolean } & Record<string, string | number | null | boolean>)[];
 };
 // A turn's measures past the three every runner gives, none of them said.
 const unsaid = {
+  cold: null,
   firstTokenMs: null,
   firstAssistantMs: null,
   retries: null,
@@ -273,6 +261,7 @@ test("computer starts and waits: per brain, each wait until the run's next step,
         brain: [
           {
             warm: false,
+            cold: "new_session",
             initMs: 4000,
             firstEventMs: 6000,
             firstTokenMs: 5000,
@@ -331,6 +320,8 @@ test("computer starts and waits: per brain, each wait until the run's next step,
       thinkingCharsP90: 280,
     },
   ]);
+  // Why the cold one started its process.
+  expect(found.coldStarts).toEqual([{ brain: "claude_code", model: null, cause: "new_session", turns: 1 }]);
   const wait = (brain: string, cause: string, waits: number, runs: number, ...sec: number[]) => ({
     cause,
     brain,
@@ -790,8 +781,6 @@ test("the query is checked, the token is needed, and the read is bounded in time
 
 test("the waits are asked for in the words of the index that finds them", async () => {
   // The planner reads a run's waits through the partial index only when the statement holds the index's condition.
-  // Both are brought down to the same words: the index's as the database prints it, the statement's as it was sent.
-  const words = (text: string) => text.replace(/::\w+|[()\s]|\bs\./g, "").toLowerCase();
   const [index] = rowsOf<{ condition: string }>(
     await t.db.execute(
       sql`select pg_get_expr(indpred, indrelid) as condition from pg_index
@@ -802,7 +791,7 @@ test("the waits are asked for in the words of the index that finds them", async 
   const issued = await issuedBy(() => timings(`${windowOf(19)}&by=model`));
   const waits = issued.filter((statement) => statement.includes("agent_run_steps s "));
   expect(waits.length).toBe(1);
-  expect(words(waits[0] ?? "")).toContain(words(index?.condition ?? "none"));
+  expect(conditionWords(waits[0] ?? "")).toContain(conditionWords(index?.condition ?? "none"));
 });
 
 type ReplyTimes = {

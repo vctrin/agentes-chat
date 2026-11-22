@@ -46,8 +46,13 @@ export interface AutoChoice {
   effort: AutoEffort;
   /** One line, for the run's `context` step. */
   reason: string;
-  /** "judge", or why it is medium/medium ("timeout", "error", "none": no judge, "kept": resumed without one). */
-  source: "judge" | "timeout" | "error" | "none" | "kept";
+  /**
+   * "judge", or why it is medium/medium ("timeout", "error", "none": no judge, "kept": resumed without one), or
+   * "conversation": the previous run's here, kept (`keptAutoChoice`).
+   */
+  source: "judge" | "timeout" | "error" | "none" | "kept" | "conversation";
+  /** The judge's probability for `tier`, where it gave one. */
+  tierP?: number;
 }
 
 /** Kept on the transcript: the choice and the API model it mapped to (stable if the keys change mid-run). */
@@ -56,7 +61,7 @@ export interface AutoModelRecord extends AutoChoice {
 }
 
 /** What a run that couldn't ask thinks with: the everyday model, ordinary effort. */
-export function fallbackChoice(source: Exclude<AutoChoice["source"], "judge">): AutoChoice {
+export function fallbackChoice(source: Exclude<AutoChoice["source"], "judge" | "conversation">): AutoChoice {
   const why: Record<typeof source, string> = {
     timeout: "The judge didn't answer in time",
     error: "The judge failed",
@@ -196,12 +201,51 @@ async function askAutoChoice(
     const tierP = percent(answers.tier?.probabilities?.[tier]);
     const effortP = percent(answers.effort?.probabilities?.[effort]);
     const reason = `${TIER_REASON[tier]}${tierP}; ${effort} effort${effortP}.`;
-    return { tier, effort, reason: reason.charAt(0).toUpperCase() + reason.slice(1), source: "judge" };
+    const p = answers.tier?.probabilities?.[tier];
+    return {
+      tier,
+      effort,
+      reason: reason.charAt(0).toUpperCase() + reason.slice(1),
+      source: "judge",
+      ...(typeof p === "number" ? { tierP: p } : {}),
+    };
   } catch {
     return fallbackChoice("error");
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** How long a conversation keeps its "Automático" choice: the prompt cache's longest life (`cacheTtl` 1h). */
+export const AUTO_KEEP_MS = 60 * 60_000;
+/** A bigger tier replaces the kept choice only when the judge is at least this sure of it. */
+export const AUTO_UPGRADE_P = 0.6;
+
+/**
+ * Within `AUTO_KEEP_MS` of the agent's previous run in this conversation, that run's tier and effort stand: another
+ * model or effort reads the whole prompt again uncached. A bigger tier the judge is sure of replaces them (an
+ * upgrade), and so does a judged small tier: its uncached read costs about what the big tier's cached one does, and
+ * its output a fortieth. A medium one, another effort or a judge that didn't answer waits for the hour.
+ */
+export function keptAutoChoice(
+  choice: AutoChoice,
+  previous: { updatedAt: Date; autoModel: { tier?: unknown; effort?: unknown } | null } | null,
+  now = Date.now(),
+): AutoChoice {
+  const tier = previous?.autoModel?.tier as ModelTier;
+  const effort = previous?.autoModel?.effort as AutoEffort;
+  if (!previous || now - previous.updatedAt.getTime() >= AUTO_KEEP_MS) return choice;
+  if (!MODEL_TIERS.includes(tier) || !AUTO_EFFORTS.includes(effort)) return choice;
+  if (tier === choice.tier && effort === choice.effort) return choice;
+  if (choice.source === "judge" && choice.tier === "small") return choice;
+  const bigger = MODEL_TIERS.indexOf(choice.tier) > MODEL_TIERS.indexOf(tier);
+  if (choice.source === "judge" && bigger && (choice.tierP ?? 1) >= AUTO_UPGRADE_P) return choice;
+  return {
+    tier,
+    effort,
+    reason: `Kept from the previous run here (asked: ${choice.tier} tier, ${choice.effort} effort).`,
+    source: "conversation",
+  };
 }
 
 // ── One decision, mapped per brain ───────────────────────────────────────────

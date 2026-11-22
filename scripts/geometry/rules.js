@@ -840,7 +840,17 @@
         if (!seen(el) || el.children.length !== 1 || ownText(el)) continue;
         const icon = el.firstElementChild;
         if (icon.tagName.toLowerCase() !== "svg" || !seen(icon)) continue;
-        const a = el.getBoundingClientRect();
+        // A plate drawn by `::before` (a glyph's, a pair of icons' in a row of actions) is what shows, not the box.
+        const box = el.getBoundingClientRect();
+        const before = getComputedStyle(el, "::before");
+        const drawn = before.content !== "none" && before.position === "absolute";
+        const inset = (side) => (drawn ? parseFloat(before[side]) || 0 : 0);
+        const a = {
+          left: box.left + inset("left"),
+          right: box.right - inset("right"),
+          top: box.top + inset("top"),
+          bottom: box.bottom - inset("bottom"),
+        };
         const b = icon.getBoundingClientRect();
         const dx = (a.left + a.right - b.left - b.right) / 2;
         const dy = (a.top + a.bottom - b.top - b.bottom) / 2;
@@ -2155,9 +2165,11 @@
     },
     /**
      * Buttons side by side stand 8 apart (rule 8): two plated ones, or two icon buttons' plates (a glyph's plate is its
-     * box less its air, `.ac-btn--glyph`). A ghost with words reads by its words (`.ac-acts`), and the parts of one
+     * box less its air, `.ac-btn--glyph`), in a row of actions (`.ac-acts`) too. A ghost with words reads by its words
+     * (`.ac-acts`), and the parts of one
      * control (a split button, a segmented control, a token's ×, an event pill's actions, a message's bar) are drawn
-     * as one, and so are the strips of format toggles: the composer's and the wiki editor's.
+     * as one, and so are the strips of format toggles (the composer's and the wiki editor's) and the composer's own
+     * tools, 4 apart.
      */
     btngap(out) {
       const kind = (el) => {
@@ -2174,7 +2186,7 @@
       // The canvas's tool strips and the spreadsheet's, the document's and the slides' toolbars (ADR 0196) are drawn
       // as one too, like the format bars.
       const ONE =
-        ".ac-split,.ac-seg,.ac-token,.ac-eventpill,.ac-msg__actions,.ac-formatbar,.wiki-bar,.cnv-bar,.cnv-dock,.cnv-zoom,.sheet-tools,.sl-tools,[role=menu],[role=menubar],svg";
+        ".ac-split,.ac-seg,.ac-token,.ac-eventpill,.ac-msg__actions,.ac-formatbar,.ac-composer__tools,.wiki-bar,.cnv-bar,.cnv-dock,.cnv-zoom,.sheet-tools,.sl-tools,[role=menu],[role=menubar],svg";
       for (const row of document.body.querySelectorAll("*")) {
         if (!seen(row) || row.closest(ONE) || !isRow(style(row))) continue;
         const kids = flow(row);
@@ -2185,7 +2197,8 @@
           const [ra, rb] = [plateOf(a), plateOf(b)];
           if (!sameLine(ra, rb)) continue;
           const gap = rb.left - ra.right;
-          if (Math.abs(gap - 8) > 0.5)
+          const want = 8;
+          if (Math.abs(gap - want) > 0.5)
             out.push({
               rule: "btngap",
               node: b,

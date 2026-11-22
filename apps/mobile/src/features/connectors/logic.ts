@@ -100,11 +100,13 @@ export function needsKeyText(
   start: Extract<CustomConnectStart, { status: "needs_key" }>,
   name: string,
   sentHeaders = false,
+  /** Who may give the workspace its own OAuth app is pointed there instead of to a key. */
+  ownClient = false,
 ) {
   if (start.reason !== "not_approved") {
     return t(sentHeaders ? "connectFlow.headers.refused" : "mobile.connectors.needsKey");
   }
-  const text = t("connectFlow.notApproved", { name });
+  const text = t(ownClient ? "connectFlow.ownClient.notApproved" : "connectFlow.notApproved", { name });
   return start.detail ? `${text}\n${t("connectFlow.serverSaid", { detail: start.detail })}` : text;
 }
 

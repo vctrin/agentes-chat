@@ -21,8 +21,10 @@ import { type LayoutChangeEvent, StyleSheet, useWindowDimensions, type ViewStyle
 import { useOrg } from "@/providers/org";
 import { useTheme } from "@/ui";
 import { cardEdge, type Scheme } from "@/ui/palette";
+import { useContentWidth } from "@/ui/pane";
 import { type Corners, RADIUS } from "@/ui/radius";
 import { BUBBLE_PART_CORNERS, MESSAGE_CARD_CORNERS, useBubblePart } from "../shared/bubble-part";
+import { BUBBLE_PAD_V } from "./bubble-cap";
 import { keepSize, keptSize } from "./kept-sizes";
 import {
   BUBBLES_EDGE,
@@ -111,11 +113,13 @@ export const useRhythm = () => CHAT_RHYTHM[useRowLook().style];
 
 /**
  * What a row's measured size depends on besides its content, for the sizes kept across the list's unmounts
- * (`kept-sizes.ts`): the window's width, the system's text size, the person's Tamanho do texto and the conversation's
- * look (its insets and faces).
+ * (`kept-sizes.ts`): the width it lays out in (the window's, or its pane's), the system's text size, the person's
+ * Tamanho do texto and the conversation's look (its insets and faces).
  */
 export function useLayoutKey(): string {
-  const { width, fontScale } = useWindowDimensions();
+  const { fontScale } = useWindowDimensions();
+  // A conversation in a pane (ADR 0212) lays out at the pane's width, not the window's.
+  const width = useContentWidth();
   const { style, faces, text } = useRowLook();
   return `${Math.round(width)}:${fontScale}:${style}:${faces ? 1 : 0}:${text?.fontSize ?? 0}`;
 }
@@ -192,7 +196,7 @@ export const lookRows = StyleSheet.create({
   bubble: {
     alignSelf: "flex-start",
     maxWidth: "100%",
-    paddingVertical: 8,
+    paddingVertical: BUBBLE_PAD_V,
     paddingHorizontal: 14,
     borderRadius: RADIUS.xl,
   },

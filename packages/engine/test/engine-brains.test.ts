@@ -88,6 +88,7 @@ import {
   transitionRun,
 } from "../src";
 import { computerPrompt } from "../src/brains/prompt";
+import { SYSTEM_REFUSED } from "../src/brains/types";
 import { afterSteered } from "../src/steering";
 import { addMember, type Fixture, setup } from "./fixtures";
 import { pairMachine } from "./machine-fixtures";
@@ -3379,6 +3380,27 @@ test("a CLI whose sandbox can't start fails the run at once with that cause, whe
     );
     expect(pending).toEqual([]);
   }
+});
+
+test("a brain refused for its computer's system fails the run at once, worded as that", async () => {
+  f = await setup();
+  await computerAgent(f);
+  const { brain, seen } = scriptedComputerBrain(() => [
+    { type: "error", code: SYSTEM_REFUSED, message: "Claude Code doesn't run on this computer's system yet." },
+  ]);
+  const handlers = createJobHandlers({
+    ...f.jobDeps,
+    brains: { claude_code: () => brain },
+    machines: { status: async (id) => statusOf(id) },
+  });
+  await post(f, "@dev roda os testes");
+  await drainOutbox(f.db, handlers);
+  await runJobsDue(f);
+  await drainOutbox(f.db, handlers);
+
+  expect(seen.length).toBe(1);
+  const [run] = await f.db.select().from(schema.agentRuns);
+  expect([run?.status, run?.error]).toEqual(["failed", "cli_system: Claude Code"]);
 });
 
 test("a sign-in that never answered fails at once on its CLI's own error, noted on it; one that answered before waits it out", async () => {

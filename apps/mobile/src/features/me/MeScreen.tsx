@@ -8,7 +8,7 @@ import Constants from "expo-constants";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import { type ReactNode, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { StyleSheet, View } from "react-native";
+import { Platform, StyleSheet, View } from "react-native";
 import Animated, { Easing, FadeIn, FadeInUp } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { signOut } from "@/features/account";
@@ -36,20 +36,35 @@ import { router } from "@/ui/navigation";
 import { openPage } from "../ai/parts";
 import { confirmAction, Uploading } from "../settings/parts";
 import { AgentFace } from "../shared/Face";
-import { useColors, useDirectory, useMeId } from "../shared/hooks";
+import { useColors, useDirectory, useMeId, useOwnsAgent } from "../shared/hooks";
 import { agentLook } from "../shared/logic";
 import { pickOne } from "../shared/PickerSheet";
 import { FocusLive, goBack, MentionCount, PushedHeader } from "../shared/parts";
 import { usePersonPhoto } from "../shared/photo";
 import { useTasksUnreadMarks, useUnreadThreads } from "../shared/queries";
+import { PageSplitScreen, type SplitPages, useLitPage, useOpenPage } from "../shared/SplitPanes";
 import { useMyPerson, usePresenceOf } from "../status/hooks";
 import { personLine } from "../status/logic";
-import { openStatus } from "../status/StatusScreen";
-import { AppIconPicture, useAppIconName } from "./AppIconPage";
+import { StatusScreen } from "../status/StatusScreen";
+import { AboutPage } from "./AboutPage";
+import { AccountPage } from "./AccountPage";
+import { AppIconPage, AppIconPicture, useAppIconName } from "./AppIconPage";
+import { ApprovalsPage } from "./ApprovalsPage";
 import { useAppIcon } from "./app-icon";
+import { ChatLookPage } from "./ChatLookPage";
 import { offersReferrals, openIssuesWithMe, workspacesBeyond } from "./logic";
-import { usePushSwitch, useSoundLabel, useStartLabel } from "./PreferencePages";
+import {
+  ActivityPage,
+  AgentStylePage,
+  LanguagePage,
+  NotificationsPage,
+  StartPage,
+  usePushSwitch,
+  useSoundLabel,
+  useStartLabel,
+} from "./PreferencePages";
 import { useChangePhoto } from "./parts";
+import { ME_FALLBACK, type MePageHref, meSplit } from "./split";
 import { useWorkspacesAcross, WorkspaceMark } from "./WorkspacesPages";
 
 /** The rows of Você's Work group. */
@@ -86,8 +101,26 @@ const PERSONAL_WORK: WorkRow[] = [
   "archived",
 ];
 
-/** Opens a screen over this page with the platform's push (back comes here). */
-const open = (href: string) => router.push(href as never);
+/** Opens a screen over this page with the platform's push (back comes here), in either size. */
+const pushScreen = (href: string) => router.push(href as never);
+
+/**
+ * Você's own pages as their routes draw them (`app/(app)/(main)/me/*`), so each can stand beside the list on a large
+ * screen (ADR 0212; `ME_PAGES` names them).
+ */
+const ME_PAGE_VIEWS = {
+  "/me/status": () => <StatusScreen />,
+  "/me/notifications": () => <NotificationsPage />,
+  "/me/approvals": () => <ApprovalsPage />,
+  "/me/start": () => <StartPage />,
+  "/me/activity": () => <ActivityPage />,
+  "/me/chat-look": () => <ChatLookPage />,
+  "/me/agent-style": () => <AgentStylePage />,
+  "/me/app-icon": () => <AppIconPage />,
+  "/me/language": () => <LanguagePage />,
+  "/me/about": () => <AboutPage />,
+  "/me/account": () => <AccountPage />,
+} satisfies SplitPages & Record<MePageHref, () => ReactNode>;
 
 /** The agents of yours Você lists before "Ver todos". */
 const AGENTS_SHOWN = 3;
@@ -125,17 +158,25 @@ let horizonArrived = false;
  * under it. Your agents, alive (a working one says what it does), "Ver todos" to the Agentes tab. Your work (Tarefas,
  * Propostas, Rotinas, Wiki, Drive, Painéis, Memória): what belongs to the workspace lives in Configurações, once. The
  * preferences; Sons and Aparência (a few fixed choices) change in their row through the app's short menu, Idioma (one of
- * many) on its own pushed list. Sair alone in red; the version is in Sobre. A settings page is opened many times a day,
+ * many) on its own pushed list. Sair alone in red; the version and build at the foot. Opened many times a day,
  * so nothing here animates beyond the presses and the platform's push, but for your agents rising onto the horizon the
  * first time it opens in a session. A personal workspace
  * (ADR 0159) is yours: no workspace name after your @, your face as its mark, and its work led by what its sidebar
  * keeps in sight (Routines, Drive), with Threads (no tab there) and Team (no row in Agents) in it. Its sky and your
- * agents hold still while a screen it opened is over it.
+ * agents hold still while a screen it opened is over it. On a large screen (ADR 0212: the iPhone Duo's inner display)
+ * the list stands on the left with the way back in its bar, and the page a row opens stands on the right, the row lit
+ * (`PageSplitScreen`); Notificações there while none is chosen. Rows that open anything else push it, as before.
  */
 export function MeScreen() {
   return (
     <FocusLive>
-      <MePage />
+      <PageSplitScreen
+        store={meSplit}
+        pages={ME_PAGE_VIEWS}
+        fallback={ME_FALLBACK}
+        list={<MePage />}
+        testID="me-split"
+      />
     </FocusLive>
   );
 }
@@ -151,9 +192,14 @@ function MePage() {
   const appIcon = useAppIcon();
   const appIconName = useAppIconName(appIcon.icon ?? PHONE_APP_ICON);
   const dir = useDirectory();
+  const owns = useOwnsAgent();
   const c = useColors();
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
+  // A screen over this page with the platform's push (back comes here); on a large screen (ADR 0212) one of Você's own
+  // pages opens beside the list instead, its row lit while it shows.
+  const open = useOpenPage();
+  const lit = useLitPage();
   // The bar is clear over the sky and becomes its own once the page scrolls under it (as an agent's page).
   const { y, onScroll } = useCoverScroll();
   // The sky's band: from the screen's top (behind the status bar and the clear bar) to the photo's middle. It reaches
@@ -188,8 +234,12 @@ function MePage() {
   const tasksUnread = useTasksUnreadMarks();
   // Threads with something new, the badge their tab has in a team's workspace.
   const unreadThreads = useUnreadThreads();
-  const version = Constants.expoConfig?.version ?? "";
-  const myAgents = dir.agents.filter((a) => a.ownerUserId === meId);
+  // The app's version and its build ("0.1.0 (104)"): what someone reporting a problem reads out.
+  const build =
+    Platform.OS === "ios" ? Constants.expoConfig?.ios?.buildNumber : Constants.expoConfig?.android?.versionCode;
+  const version = [Constants.expoConfig?.version, build ? `(${build})` : null].filter(Boolean).join(" ");
+  // Mine: its owner, or holding the role that answers for it (ADR 0085, addendum of 2026-11-21).
+  const myAgents = dir.agents.filter((a) => owns(a));
   const handle = mine?.handle ? `@${mine.handle}` : null;
   // A personal workspace's name ("Personal") says nothing after your @.
   const headline = [handle, personal ? null : org.org?.name].filter(Boolean).join(" · ");
@@ -425,6 +475,7 @@ function MePage() {
               icon="bell"
               label={t("mobile.me.notifications")}
               {...(push === null ? {} : { value: push ? t("mobile.me.on") : t("mobile.me.off") })}
+              {...lit("/me/notifications")}
               chevron
               onPress={() => open("/me/notifications")}
             />
@@ -435,6 +486,7 @@ function MePage() {
                 key="approvals"
                 icon="shield"
                 label={t("settings.section.approvals")}
+                {...lit("/me/approvals")}
                 chevron
                 onPress={() => open("/me/approvals")}
               />
@@ -446,6 +498,7 @@ function MePage() {
                 icon="home"
                 label={t("mobile.me.start")}
                 value={startLabel}
+                {...lit("/me/start")}
                 chevron
                 onPress={() => open("/me/start")}
               />
@@ -457,6 +510,7 @@ function MePage() {
                 icon="eye"
                 label={t("mobile.me.activity")}
                 value={org.org.showActivity ? t("mobile.me.on") : t("mobile.me.off")}
+                {...lit("/me/activity")}
                 chevron
                 onPress={() => open("/me/activity")}
               />
@@ -467,6 +521,7 @@ function MePage() {
                 key="chat"
                 icon="text"
                 label={t("settings.account.chat.title")}
+                {...lit("/me/chat-look")}
                 chevron
                 onPress={() => open("/me/chat-look")}
               />
@@ -482,6 +537,7 @@ function MePage() {
                     ? t("settings.account.agentStyleTechnical")
                     : t("settings.account.agentStyleSimple")
                 }
+                {...lit("/me/agent-style")}
                 chevron
                 onPress={() => open("/me/agent-style")}
               />
@@ -509,6 +565,7 @@ function MePage() {
                 leading={<AppIconPicture icon={appIcon.icon} />}
                 label={t("appIcon.title")}
                 value={appIconName}
+                {...lit("/me/app-icon")}
                 chevron
                 onPress={() => open("/me/app-icon")}
               />
@@ -518,6 +575,7 @@ function MePage() {
               icon="globe"
               label={t("mobile.me.language")}
               value={isAppLocale(i18n.language) ? localeInfo(i18n.language).native : i18n.language}
+              {...lit("/me/language")}
               chevron
               onPress={() => open("/me/language")}
             />
@@ -536,6 +594,7 @@ function MePage() {
                 key="about"
                 icon="info"
                 label={t("settings.section.about")}
+                {...lit("/me/about")}
                 chevron
                 onPress={() => open("/me/about")}
               />
@@ -546,8 +605,8 @@ function MePage() {
           <GroupedList>
             <GroupedRow key="signOut" label={t("mobile.me.signOut")} danger onPress={confirmSignOut} />
           </GroupedList>
-          {/* Sobre says the version; without it (a server that hides it), the version stays here. */}
-          {!about && version ? <GroupedFooter>{t("mobile.me.version", { version })}</GroupedFooter> : null}
+          {/* At the menu's foot, always (Sobre says it too): the first place anyone looks for it. */}
+          {version ? <GroupedFooter>{t("mobile.me.version", { version })}</GroupedFooter> : null}
         </View>
       </Animated.ScrollView>
       {/* The bar takes the page's gray only once the sky has gone from under it: over the sky it stays clear. */}
@@ -556,10 +615,15 @@ function MePage() {
   );
 }
 
-/** Your status as a row (ADR 0084): "Definir status" or how you appear, with when it clears; a tap pushes Status. */
+/**
+ * Your status as a row (ADR 0084): "Definir status" or how you appear, with when it clears; a tap pushes Status (beside
+ * the list on a large screen, ADR 0212).
+ */
 function StatusRow() {
   const { t, i18n } = useTranslation();
   const me = useMyPerson();
+  const open = useOpenPage();
+  const lit = useLitPage();
   const presence = me?.presence ?? "offline";
   const status = me?.status ?? null;
   const label = status
@@ -567,7 +631,7 @@ function StatusRow() {
     : presence === "online"
       ? t("presence.setStatus")
       : t(`presence.${presence}`);
-  return <GroupedRow icon="smile" label={label} chevron onPress={openStatus} />;
+  return <GroupedRow icon="smile" label={label} {...lit("/me/status")} chevron onPress={() => open("/me/status")} />;
 }
 
 /**
@@ -623,7 +687,7 @@ function AgentRow({ agentId, name, role }: { agentId: string; name: string; role
       label={name}
       {...(working ? { below: <WorkingLine color={look.color} text={working} /> } : role ? { sub: role } : {})}
       chevron
-      onPress={() => open(`/agent/${agentId}`)}
+      onPress={() => pushScreen(`/agent/${agentId}`)}
     />
   );
 }

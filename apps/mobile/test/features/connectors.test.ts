@@ -175,6 +175,10 @@ describe("connectors gallery", () => {
     expect(needsKeyText(en, said, "Asana").split("\n")[1]).toBe(
       "The server answered: invalid_redirect_uri: not allowed",
     );
+    // Who may give the workspace its own OAuth app is pointed there, the server's words still under ours.
+    expect(needsKeyText(en, said, "Meta Ads", false, true)).toBe(
+      "Meta Ads only lets in apps it approved, and agentes.chat isn't one yet. You can connect it with your own app there.\nThe server answered: invalid_redirect_uri: not allowed",
+    );
   });
 
   test("search covers the name, id, description and the translated text", () => {

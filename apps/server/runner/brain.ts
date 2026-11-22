@@ -20,6 +20,7 @@ import {
   type AccountKind,
   type AgentScope,
   BRAIN_LIMITS,
+  type BrainColdCause,
   type BrainEffort,
   type BrainSteerReply,
   type BrainSteerRequest,
@@ -79,6 +80,7 @@ import {
 import { coAuthorLines } from "./co-authors";
 import { ownBranches } from "./command-gate";
 import { DELEGATED_RESULT_CHARS, type DelegatedBridge } from "./delegated-tools";
+import { hostMemAvailable, MIN_FREE_BYTES } from "./desktop-session";
 import { RunnerError } from "./errors";
 import { descendantPids, killTree } from "./exec";
 import { cliSpawn } from "./executors";
@@ -184,6 +186,17 @@ export const brainKey = (agentId: string, session: string) => `${agentId}:${sess
 
 export const BRAIN_IDLE_MS = 3 * 60_000;
 export const BRAIN_MAX_PROCESSES = 1;
+/**
+ * A ready process (`BrainManager.adoptReady`) starts only with this much memory free, and closes after this long
+ * unused: Claude Code takes the folder's git status when it starts, so an old one would tell a stale one.
+ */
+export const READY_MIN_FREE_BYTES = MIN_FREE_BYTES + 1.5 * 1024 ** 3;
+export const READY_IDLE_MS = 20 * 60_000;
+/** Sessions adopted ready processes are kept for (`adopted.json`): resumed by the id the server knows them by. */
+const ADOPTED_KEPT = 2000;
+const ADOPTED_KEEP_MS = 30 * 86_400_000;
+/** Why each session's last process ended, for the cold cause of its next turn (`BrainColdCause`). */
+const GONE_KEPT = 2000;
 /**
  * How long a session's first system text is kept after its last use: Claude Code's prompt cache lives 1 hour
  * (subscriptions, and `CLAUDE_CODE_PROMPT_CACHE_TTL=1h` on keys), plus a margin.
@@ -1847,6 +1860,8 @@ export interface BrainManagerOptions {
   /** How long a process may sit between turns, in time the computer was awake (`AwakeClock`). */
   idleMs?: number;
   maxProcesses?: number;
+  /** Whether the computer has room for a ready process now (`readyRoom`); none without it. */
+  readyRoom?: () => boolean;
   /** Tests: the awake time idle processes are measured in. */
   clock?: Pick<AwakeClock, "read">;
   deltaMs?: number;
@@ -1906,11 +1921,14 @@ interface Live {
   guessed?: string;
   /** `drop` ran: a process closed while idle exits after, and its exit handler drops it again. */
   dropped?: boolean;
+  /** Started on a session of its own for the agent's next new conversation, which adopts it (`adoptReady`). */
+  ready?: boolean;
 }
 
 /** What the bridge needs for one process's MCP server: its local token, and the run it works for now. */
 interface BridgeEntry {
   token: string;
+  agentId: string;
   cwd: string;
   folder: string;
   runId: string | null;
@@ -2006,6 +2024,22 @@ function newestClaudeSession(claudeHome: string, session: string, look: typeof l
   return newest?.file ?? null;
 }
 
+/** A turn's launch without its words, its run or its tokens: what a ready process of the agent starts with. */
+const launchOf = (req: BrainTurnRequest): BrainTurnRequest => ({
+  ...req,
+  runId: "ready",
+  system: "",
+  conversation: "",
+  prompt: "",
+  mcp: { token: "" },
+});
+
+/** Room for a ready process: known free memory past its floor (none where memory isn't read). */
+export const readyRoom = () => {
+  const free = hostMemAvailable();
+  return free !== null && free >= READY_MIN_FREE_BYTES;
+};
+
 /** What a turn says when its account's token is refused. */
 export const TOKEN_REFUSED = "Claude refused this account's sign-in. Sign in again in AI accounts.";
 
@@ -2043,10 +2077,131 @@ export class BrainManager {
   private readonly cwds = new Map<string, string>();
   /** Ended background shells of sessions with no process to tell, by `brainKey`: their next turn hears of them. */
   private readonly notices = new Map<string, ToolNotice[]>();
+  /** Why each session's last process ended (`brainKey`), oldest first: its next turn's cold cause. */
+  private readonly gone = new Map<string, BrainColdCause>();
+  /** Each agent's ready process, by its session (`adoptReady`). */
+  private readonly ready = new Map<string, string>();
+  /** The launch each agent's last turn had, for its ready process: the request without its words, and its context. */
+  private readonly lastLaunch = new Map<string, { req: BrainTurnRequest; ctx: BrainTurnContext; cwd: string }>();
+  /** The server's session id → the ready process's session that answers for it (`adopted.json`); read once. */
+  private adopted: Map<string, { to: string; at: number }> | null = null;
   private readonly log: (line: string) => void;
 
   constructor(private readonly opts: BrainManagerOptions) {
     this.log = opts.log ?? (() => {});
+  }
+
+  private get adoptedFile() {
+    return path.join(this.opts.root, "sessions", "adopted.json");
+  }
+
+  private adoptions() {
+    if (this.adopted) return this.adopted;
+    const now = Date.now();
+    const kept = readJson<Record<string, { to?: unknown; at?: unknown }>>(this.adoptedFile) ?? {};
+    this.adopted = new Map(
+      Object.entries(kept).flatMap(([from, v]) =>
+        SESSION_ID.test(from) &&
+        typeof v?.to === "string" &&
+        SESSION_ID.test(v.to) &&
+        typeof v.at === "number" &&
+        now - v.at < ADOPTED_KEEP_MS
+          ? [[from, { to: v.to, at: v.at }] as const]
+          : [],
+      ),
+    );
+    return this.adopted;
+  }
+
+  /** The session Claude Code knows a server's session by: itself, or the ready process's it adopted. */
+  sessionOf(session: string) {
+    return this.adoptions().get(session)?.to ?? session;
+  }
+
+  private adopt(from: string, to: string) {
+    const all = this.adoptions();
+    all.set(from, { to, at: Date.now() });
+    while (all.size > ADOPTED_KEPT) all.delete(all.keys().next().value ?? "");
+    try {
+      mkdirSync(path.dirname(this.adoptedFile), { recursive: true, mode: 0o700 });
+      writeJson(this.adoptedFile, Object.fromEntries(all));
+    } catch (err) {
+      this.log(`brain: couldn't keep an adopted session (${err instanceof Error ? err.message : String(err)})`);
+    }
+  }
+
+  /** `brainKey` with the session Claude Code knows (`sessionOf`). */
+  private keyOf(key: string) {
+    const at = key.lastIndexOf(":");
+    return at < 0 ? key : `${key.slice(0, at)}:${this.sessionOf(key.slice(at + 1))}`;
+  }
+
+  /**
+   * A new conversation of the agent takes its ready process instead of starting one: that process's session answers
+   * for the server's from now on (`sessionOf`), here and after a restart. Only a session that never ran here, and only
+   * a process started with this turn's launch and system text, idle; one with another text goes (its text would be
+   * the session's for good).
+   */
+  private adoptReady(
+    agentId: string,
+    session: string,
+    sig: string,
+    system: string | undefined,
+    fresh: () => boolean,
+  ): string | null {
+    const id = this.ready.get(agentId);
+    if (!id || this.adoptions().has(session) || this.live.has(brainKey(agentId, session))) return null;
+    const live = this.live.get(brainKey(agentId, id));
+    if (!live?.ready || live.busy || live.proc.exited || live.sig !== sig || !fresh()) return null;
+    if (system !== undefined && live.guessed !== system) {
+      this.ready.delete(agentId);
+      this.drop(live, "warm_mismatch");
+      rmSync(live.keptSystem, { force: true });
+      return null;
+    }
+    this.ready.delete(agentId);
+    live.ready = false;
+    this.adopt(session, id);
+    this.log(`brain process ${id.slice(0, 8)} (ready) takes the new session ${session.slice(0, 8)}`);
+    return id;
+  }
+
+  /**
+   * After a turn of the agent's: a process on a session of its own, started as that turn's was, for its next new
+   * conversation (`adoptReady`). Only where the agent may keep more than one process, with room in memory and in its
+   * cap, never for a sign-in several agents share.
+   */
+  private startReady(agentId: string) {
+    const last = this.lastLaunch.get(agentId);
+    const system = this.systems.get(agentId);
+    if (this.closed || !last || system === undefined || this.ready.has(agentId) || this.max < 2) return;
+    if (this.alive(agentId) >= this.max || !this.opts.readyRoom?.()) return;
+    const session = crypto.randomUUID();
+    this.ready.set(agentId, session);
+    const turn: BrainTurnRequest = {
+      ...last.req,
+      runId: "ready",
+      session: { id: session, resume: false },
+      system,
+      conversation: "",
+      prompt: "",
+      mcp: { token: "" },
+    };
+    const ctx: BrainTurnContext = { ...last.ctx, emit: () => {}, signal: undefined };
+    void this.queue(brainKey(agentId, session), async (key) => {
+      await yieldRoute("claude_code", ctx.accountHome);
+      if (this.closed || this.ready.get(agentId) !== session) return;
+      const sig = this.signature(last.cwd, turn, ctx);
+      const live = await this.spawn(key, session, last.cwd, turn, ctx, sig, true, false);
+      live.guessed = system;
+      live.ready = true;
+      live.busy = false;
+      live.lastUsed = Date.now();
+      this.armIdle(live);
+    }).catch((err: unknown) => {
+      if (this.ready.get(agentId) === session) this.ready.delete(agentId);
+      this.log(`brain: no ready process (${err instanceof Error ? err.message : String(err)})`);
+    });
   }
 
   /**
@@ -2058,7 +2213,7 @@ export class BrainManager {
     const keep = new Set([...(account ? [account] : []), ...also]);
     if (agentId === undefined) this.keep = keep;
     else this.keeps.set(agentId, keep);
-    for (const l of [...this.live.values()]) if (!l.busy && this.left(l)) this.drop(l);
+    for (const l of [...this.live.values()]) if (!l.busy && this.left(l)) this.drop(l, "settings");
   }
 
   /** On an account its agent no longer thinks with (the computer's own sign-in is none). */
@@ -2087,13 +2242,13 @@ export class BrainManager {
 
   /** Whether the session `key` (`brainKey`) has an open process: its next turn starts no new CLI. */
   warm(key: string) {
-    const l = this.live.get(key);
+    const l = this.live.get(this.keyOf(key));
     return l !== undefined && !l.proc.exited;
   }
 
   /** The live process of a session, if any (tests). */
   process(agentId: string, session: string): ClaudeProcess | undefined {
-    return this.live.get(brainKey(agentId, session))?.proc;
+    return this.live.get(brainKey(agentId, this.sessionOf(session)))?.proc;
   }
 
   /** Whether a process of that sign-in is open: a turn, or the one kept after it (`null`: the computer's own). */
@@ -2115,6 +2270,7 @@ export class BrainManager {
       running: b.runId !== null,
       // Between turns the process lives on, but nothing is relayed (never with an ended run's token).
       ...(b.runId === null ? { idle: true } : {}),
+      agentId: b.agentId,
       cwd: b.cwd,
       folder: b.folder,
       ...(b.runId ? { runId: b.runId } : {}),
@@ -2141,7 +2297,8 @@ export class BrainManager {
    */
   steer(agentId: string, req: BrainSteerRequest): BrainSteerReply {
     const live = this.running.get(req.runId);
-    if (!live || live.key !== brainKey(agentId, req.session) || live.proc.exited) return { status: "no_turn" };
+    if (!live || live.key !== brainKey(agentId, this.sessionOf(req.session)) || live.proc.exited)
+      return { status: "no_turn" };
     return live.proc.turn?.steer(req.messages) ?? { status: "no_turn" };
   }
 
@@ -2183,7 +2340,14 @@ export class BrainManager {
       throw new RunnerError("bad_request", "The session must be a UUID");
     if (typeof req.prompt !== "string" || !req.prompt.trim()) throw new RunnerError("bad_request", "Empty prompt");
     const at = await this.place(req, ctx);
-    return "type" in at ? at : this.queueTurn(at.session, at.cwd, req, at.ctx);
+    if ("type" in at) return at;
+    if (!at.ctx.delegated && req.keepAlive !== false) {
+      const sig = this.signature(at.cwd, req, at.ctx);
+      const system = typeof req.system === "string" ? req.system : "";
+      const fresh = () => !this.resumeFor(at.cwd, at.session, req, at.ctx);
+      at.session = this.adoptReady(at.ctx.agent.id, at.session, sig, system, fresh) ?? at.session;
+    }
+    return this.queueTurn(at.session, at.cwd, req, at.ctx);
   }
 
   /** Where a turn (or a warm start) of `req` runs: its session, folder and sign-in; an event when it can't. */
@@ -2191,8 +2355,9 @@ export class BrainManager {
     req: BrainWarmRequest,
     ctx: BrainTurnContext,
   ): Promise<{ session: string; cwd: string; ctx: BrainTurnContext } | WireBrainEvent> {
-    const session = typeof req.session?.id === "string" ? req.session.id : "";
-    if (!SESSION_ID.test(session)) throw new RunnerError("bad_request", "The session must be a UUID");
+    const asked = typeof req.session?.id === "string" ? req.session.id : "";
+    if (!SESSION_ID.test(asked)) throw new RunnerError("bad_request", "The session must be a UUID");
+    const session = ctx.delegated ? asked : this.sessionOf(asked);
     const chat = req.permissions?.mode === "chat";
     if (ctx.delegated) {
       if (req.personalMcp === true && !chat) return errorEvent("unsupported", PERSONAL_MCP_REFUSED, false);
@@ -2268,6 +2433,15 @@ export class BrainManager {
     const last = this.cwds.get(ctx.agent.id);
     const allowed = (dir: string) => [at.ctx.folder, ...(at.ctx.grants ?? [])].some((root) => isInside(root, dir));
     if (!req.cwd && req.permissions?.mode !== "chat" && last && allowed(last) && existsSync(last)) at.cwd = last;
+    const warmTurn = { ...req, runId: "warm", system, conversation: "", prompt: "", mcp: { token: "" } };
+    const adopted = this.adoptReady(
+      ctx.agent.id,
+      at.session,
+      this.signature(at.cwd, warmTurn, at.ctx),
+      undefined,
+      () => !this.resumeFor(at.cwd, at.session, warmTurn, at.ctx),
+    );
+    if (adopted) return { open: true, started: false };
     return this.queue(brainKey(ctx.agent.id, at.session), async (key) => {
       const open = this.live.get(key);
       if (open && !open.proc.exited) {
@@ -2290,7 +2464,7 @@ export class BrainManager {
       if (this.alive(ctx.agent.id) >= this.max) {
         const idle = this.lruIdle(ctx.agent.id);
         if (!idle) return no;
-        this.closeIdle(idle);
+        this.closeIdle(idle, "for another conversation", "cap");
       }
       const sig = this.signature(at.cwd, turn, at.ctx);
       const resume = this.resumeFor(at.cwd, at.session, turn, at.ctx);
@@ -2350,6 +2524,7 @@ export class BrainManager {
       },
     };
     let warm = false;
+    let cold: BrainColdCause | undefined;
     let started: Live | undefined;
     const since = (at: number | null | undefined) => (at != null && at >= startedAt ? at - startedAt : undefined);
     const timed = (final: WireBrainEvent, used: Live): WireBrainEvent => {
@@ -2366,7 +2541,7 @@ export class BrainManager {
         thinkingChars: s.thinkingChars,
       };
       const kept = Object.entries(measures).filter(([, v]) => v !== undefined);
-      return { ...final, timings: { warm, ...Object.fromEntries(kept) } };
+      return { ...final, timings: { warm, ...(cold ? { cold } : {}), ...Object.fromEntries(kept) } };
     };
     // A route on this sign-in stops first: two processes on one sign-in race on its refresh token. Kept right
     // before the process starts, since a route may begin during any await before it.
@@ -2378,6 +2553,7 @@ export class BrainManager {
     if (!ctx.delegated) {
       this.systems.set(ctx.agent.id, system);
       this.cwds.set(ctx.agent.id, cwd);
+      if (req.keepAlive !== false) this.lastLaunch.set(ctx.agent.id, { req: launchOf(req), ctx, cwd });
     }
     let live = this.live.get(key);
     // Warmed with another system text than this turn's: that text would be the session's for good.
@@ -2385,7 +2561,7 @@ export class BrainManager {
       const guessed = live.guessed;
       live.guessed = undefined;
       if (guessed !== system) {
-        this.drop(live);
+        this.drop(live, "warm_mismatch");
         rmSync(live.keptSystem, { force: true });
         live = undefined;
       }
@@ -2394,7 +2570,7 @@ export class BrainManager {
     // its end (output discarded) and keep the process, with the agent's background jobs; kill only a stuck one.
     if (live && live.sig === sig && live.proc.onItsOwn) live = await this.awaitOwnTurn(live, session, ctx);
     if (live && (live.proc.exited || live.sig !== sig || !(await this.switchLive(live, req, ctx)))) {
-      this.drop(live);
+      this.drop(live, live.proc.exited ? "exited" : "settings");
       live = undefined;
     }
     // A turn of its own may have begun while it switched, and the runner may have begun to stop.
@@ -2403,17 +2579,21 @@ export class BrainManager {
     const keepAlive = req.keepAlive !== false;
     warm = Boolean(live);
     if (!live && keepAlive) {
-      if (this.alive(ctx.agent.id) >= this.max) this.closeIdle(this.lruIdle(ctx.agent.id));
+      if (this.alive(ctx.agent.id) >= this.max)
+        this.closeIdle(this.lruIdle(ctx.agent.id), "for another conversation", "cap");
+      const resume = this.resumeFor(cwd, session, req, ctx);
+      cold = this.gone.get(key) ?? (resume ? "restart" : "new_session");
+      this.gone.delete(key);
       // Over the cap when every process is busy or holds work: the turn still gets its own (the agent works on
       // several conversations at once); `trim` closes the extra as turns end.
-      live = await this.spawn(key, session, cwd, req, ctx, sig, true, this.resumeFor(cwd, session, req, ctx));
+      live = await this.spawn(key, session, cwd, req, ctx, sig, true, resume);
       started = live;
     }
     if (live) {
       live.proc.parser.resetStats();
       const out = await this.onLive(live, req, ctx);
       // A background turn (a routine's run): nothing stays alive for it afterwards, not even a process it found.
-      if (!keepAlive) this.drop(live);
+      if (!keepAlive) this.drop(live, "closed");
       if (out.final) return timed(out.final, live);
       // Stalled and stopped: the same turn again, one-shot, resuming the session, told what hung (`stallNote`).
       if (out.stalled) {
@@ -2511,7 +2691,7 @@ export class BrainManager {
         );
         live.proc.kill();
       }
-      this.drop(live);
+      this.drop(live, "closed");
       return undefined;
     } finally {
       live.busy = false;
@@ -2653,10 +2833,11 @@ export class BrainManager {
       if (live.bridged && !live.proc.exited) void live.bridged.to.bridge(live.bridged.frame).catch(() => undefined);
       this.keepCompacted(live);
       if (live.persistent && this.live.get(live.key) === live) {
-        if (this.left(live)) this.drop(live);
+        if (this.left(live)) this.drop(live, "settings");
         else this.armIdle(live);
       }
       this.trim(live.agentId);
+      if (live.persistent && !delegated) this.startReady(live.agentId);
     }
   }
 
@@ -2774,13 +2955,15 @@ export class BrainManager {
     );
     writeFileSync(systemFile, started.text, { mode: fileMode });
     let mcpConfigFile: string | undefined;
-    // A `chat` turn never holds the agent's secrets, nor reads the auto memory Claude Code keeps in the account's
-    // folder (whoever else that folder is lent to can write there), nor loads the plan's claude.ai connectors.
+    // A `chat` turn never holds the agent's secrets, nor loads the plan's claude.ai connectors.
+    // Claude Code's auto memory is off unless the owner's own settings load (`personalMcp`), where theirs decide. The
+    // workspace's memory is the agent's; Claude Code's sat in the sign-in's folder, which the agent's own tools can't
+    // list (ADR 0057) and whoever else that folder is lent to can write, and its prompt section (about 2.3k
+    // characters) names the folder, so sessions in two folders shared less of their cache (ADR 0043).
     const base: NodeJS.ProcessEnv = {
       ...process.env,
-      ...(mode === "chat"
-        ? { CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1", ENABLE_CLAUDEAI_MCP_SERVERS: "false" }
-        : (ctx.secrets?.env ?? {})),
+      ...(mode === "chat" ? { ENABLE_CLAUDEAI_MCP_SERVERS: "false" } : (ctx.secrets?.env ?? {})),
+      ...(launch.settingSources === undefined ? {} : { CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" }),
     };
     const launched = delegated ? await delegated.launch(cwd) : null;
     // ADR 0041: the account's folder is this process's Claude Code home, and nothing else signs it in. Delegated: all
@@ -2838,7 +3021,7 @@ export class BrainManager {
         ...(delegated.task ? { task: delegated.task.kind } : {}),
         ...(persistent ? {} : { oneShot: true as const }),
       };
-      this.bridge.set(id, { token, cwd, folder: ctx.folder, runId: null, runToken: null });
+      this.bridge.set(id, { token, agentId: ctx.agent.id, cwd, folder: ctx.folder, runId: null, runToken: null });
       bridged = { frame, to: delegated };
       // The worker has it before the CLI's relay can dial.
       await delegated.bridge(frame);
@@ -2870,6 +3053,7 @@ export class BrainManager {
       );
       this.bridge.set(id, {
         token,
+        agentId: ctx.agent.id,
         cwd,
         folder: ctx.folder,
         runId: null,
@@ -2975,7 +3159,7 @@ export class BrainManager {
     if (persistent) this.live.set(key, live);
     // Crashed while idle: forgotten; the next turn starts it again (resumed).
     proc.onExit(() => {
-      if (!live.busy) this.drop(live);
+      if (!live.busy) this.drop(live, "exited");
     });
     this.log(
       `[${ctx.agent.handle}] brain ${persistent ? "process" : "one-shot"} for ${session.slice(0, 8)} (${resume ? "resume" : "new"})`,
@@ -3047,7 +3231,12 @@ export class BrainManager {
 
   private armIdle(live: Live) {
     live.idleSince = this.clock.read();
-    this.checkIdle(live, this.opts.idleMs ?? BRAIN_IDLE_MS);
+    this.checkIdle(live, this.idleLimit(live));
+  }
+
+  private idleLimit(live: Live) {
+    const idle = this.opts.idleMs ?? BRAIN_IDLE_MS;
+    return live.ready ? Math.min(idle, READY_IDLE_MS) : idle;
   }
 
   /** Closes `live` once it sat idle `idleMs` of awake time: a timer that fires after a sleep finds less and waits on. */
@@ -3058,10 +3247,10 @@ export class BrainManager {
       if (live.busy) return;
       // Its dev server or watcher would die with it: looked at again later.
       if (live.proc.holdsWork) return this.armIdle(live);
-      const left = (this.opts.idleMs ?? BRAIN_IDLE_MS) - (this.clock.read() - live.idleSince);
+      const left = this.idleLimit(live) - (this.clock.read() - live.idleSince);
       if (left > 0) return this.checkIdle(live, left);
       this.log(`brain process ${live.key.split(":")[1]?.slice(0, 8) ?? ""} idle; closing`);
-      this.drop(live);
+      this.drop(live, "idle");
     }, waitMs);
     live.idleTimer.unref?.();
   }
@@ -3076,7 +3265,8 @@ export class BrainManager {
    */
   private lruIdle(agentId?: string, spare?: string): Live | undefined {
     let lru: Live | undefined;
-    const rank = (l: Live) => (l.key === spare ? Number.MAX_SAFE_INTEGER : l.lastUsed);
+    // A ready process holds no conversation yet: it goes first.
+    const rank = (l: Live) => (l.key === spare ? Number.MAX_SAFE_INTEGER : l.ready ? -1 : l.lastUsed);
     for (const l of this.live.values()) {
       if (l.busy || !l.persistent || l.proc.holdsWork || (agentId !== undefined && l.agentId !== agentId)) continue;
       if (!lru || rank(l) < rank(lru)) lru = l;
@@ -3090,10 +3280,10 @@ export class BrainManager {
     return l ? { since: l.lastUsed, spare: l.key === spare } : null;
   }
 
-  private closeIdle(l: Live | undefined, why = "for another conversation") {
+  private closeIdle(l: Live | undefined, why: string, cause: BrainColdCause) {
     if (!l) return;
     this.log(`brain process ${l.key.split(":")[1]?.slice(0, 8) ?? ""} idle; closing ${why}`);
-    this.drop(l);
+    this.drop(l, cause);
   }
 
   /** Back within the agent's cap once its turns end: the least recently used idle processes close first. */
@@ -3101,7 +3291,7 @@ export class BrainManager {
     while (this.alive(agentId) > this.max) {
       const l = this.lruIdle(agentId);
       if (!l) return;
-      this.closeIdle(l, "(over the cap)");
+      this.closeIdle(l, "(over the cap)", "cap");
     }
   }
 
@@ -3113,7 +3303,7 @@ export class BrainManager {
   async reclaimIdle(spare?: string): Promise<boolean> {
     const l = this.lruIdle(undefined, spare);
     if (!l) return false;
-    this.closeIdle(l, "to make room for a turn");
+    this.closeIdle(l, "to make room for a turn", "memory");
     await new Promise<void>((resolve) => {
       const late = setTimeout(resolve, RECLAIM_EXIT_MS);
       late.unref?.();
@@ -3125,13 +3315,20 @@ export class BrainManager {
     return true;
   }
 
-  private drop(live: Live) {
+  private drop(live: Live, cause: BrainColdCause = "closed") {
     // Once per process: a second pass at its exit would date the kept system text from the exit, not the close.
     if (live.dropped) return;
     live.dropped = true;
     if (live.idleTimer) clearTimeout(live.idleTimer);
     live.idleTimer = null;
-    if (this.live.get(live.key) === live) this.live.delete(live.key);
+    if (this.live.get(live.key) === live) {
+      this.live.delete(live.key);
+      this.gone.delete(live.key);
+      this.gone.set(live.key, cause);
+      if (this.gone.size > GONE_KEPT) this.gone.delete(this.gone.keys().next().value ?? "");
+    }
+    if (live.ready && this.ready.get(live.agentId) === live.key.slice(live.agentId.length + 1))
+      this.ready.delete(live.agentId);
     if (!live.proc.exited) live.proc.close();
     this.bridge.delete(live.id);
     if (live.bridged) void live.bridged.to.bridge({ ...live.bridged.frame, token: null }).catch(() => undefined);

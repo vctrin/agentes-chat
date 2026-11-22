@@ -471,7 +471,7 @@ export async function decideCommand(
     // Only who decides the agent's approvals keeps something for it everywhere (its owner, `approve_actions`).
     const agent = p.agentKind ? await getAgent(deps.db, orgId, mission.agentId) : null;
     if (!agent) throw new ConflictError("This command can't be approved for good", "approval.always_unavailable");
-    if (!(await decidesAgentApprovals(deps.db, orgId, userId, agent.ownerUserId))) {
+    if (!(await decidesAgentApprovals(deps.db, orgId, userId, agent))) {
       throw new ForbiddenError("Only the agent's owner or an admin can approve this for good");
     }
   }

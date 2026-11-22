@@ -36,6 +36,9 @@ export function brainRunsOn(kind: ComputerBrainKind, os: string | null | undefin
   return true;
 }
 
+/** A turn refused because its brain doesn't run on its computer's system (`brainRunsOn`): no runner asked, no retry. */
+export const SYSTEM_REFUSED = "brain_system";
+
 /** The plan each computer brain thinks with, as people buy it. */
 export const BRAIN_PLAN_NAMES: Readonly<Record<ComputerBrainKind, string>> = {
   claude_code: "Claude",

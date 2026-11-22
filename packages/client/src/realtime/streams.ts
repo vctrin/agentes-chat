@@ -118,6 +118,11 @@ export interface LiveRun {
   agentId: string;
   channelId: string;
   threadId: string;
+  /**
+   * It answers in the thread under the message that asked it (ADR 0214), as the server's active-run list says. Unknown
+   * for a row only live events made: their `threadId` is already where it answers.
+   */
+  replyInThread?: boolean;
   status: LiveStatus;
   error?: string;
   /** `run.finished`'s code for the error (`run.org_paused`…) and its values. */
@@ -139,6 +144,13 @@ export interface LiveRun {
    * brain's own that no `agent.tool` told (`tool`, `agent.step`). The next call replaces it.
    */
   step?: LiveStep;
+  /**
+   * What it is about to do, in a few words the server wrote when it started (`agent.intent`): the bar's line instead of
+   * "escrevendo…" until its own line on the way (`say_now`) or its reply comes.
+   */
+  intent?: string;
+  /** Its line on the way (`say_now`) is in the conversation: a late `agent.intent` says nothing more. */
+  said?: boolean;
   /** "Parar" was pressed and the server hasn't confirmed yet. */
   stopping?: boolean;
   /** Its browser command waits for a shared profile someone else has (ADR 0110). */
@@ -302,6 +314,16 @@ export interface AgentStepEvent {
   said?: string | null;
 }
 
+/** What a run started on a person's message is about to do (`LiveRun.intent`). */
+export interface AgentIntentEvent {
+  type: "agent.intent";
+  channelId: string;
+  threadId: string;
+  runId: string;
+  agentId: string;
+  text: string;
+}
+
 export interface StreamsState {
   runs: Record<string, LiveRun>;
   /** Runs heard to stop, and when: late deltas for them are ignored. */
@@ -425,6 +447,7 @@ type StreamEvent =
   | ChannelEvent
   | AgentToolEvent
   | AgentStepEvent
+  | AgentIntentEvent
   | AgentToolOutputEvent
   | RunCanceledEvent
   | RunSteeredEvent
@@ -585,6 +608,12 @@ function applyEvent(state: StreamsState, event: StreamEvent): StreamsState {
       if (state.finished[event.runId] || !state.runs[event.runId]) return state;
       return upsert(state, event, { step: { tool: event.tool, ...(event.said ? { said: event.said } : {}) } });
     }
+    case "agent.intent": {
+      const r = state.runs[event.runId];
+      // Its own words came first: the line it said on the way, or its reply.
+      if (state.finished[event.runId] || !r || r.said) return state;
+      return { ...state, runs: { ...state.runs, [event.runId]: { ...r, intent: event.text } } };
+    }
     case "agent.tool.output": {
       if (state.finished[event.runId]) return state;
       const current = state.runs[event.runId];
@@ -607,6 +636,12 @@ function applyEvent(state: StreamsState, event: StreamEvent): StreamsState {
     }
     case "message.created": {
       const m = event.message;
+      const saidFor = (m?.meta?.sayNow as { runId?: unknown } | undefined)?.runId;
+      if (typeof saidFor === "string") {
+        const r = state.runs[saidFor];
+        // Its own line on the way is the words the bar waited for.
+        return r ? { ...state, runs: { ...state.runs, [saidFor]: { ...r, intent: undefined, said: true } } } : state;
+      }
       // Too big for its event, it comes as its run and thread only (read over HTTP), and ends the run all the same: its
       // block waits for that read (`landing`) instead of going blank.
       const runId = m ? m.agentRunId : event.agentRunId;
@@ -810,6 +845,7 @@ export function reconcileRuns(
           [a.runId]: {
             ...r,
             ...(a.triggerMessageId ? { triggerMessageId: a.triggerMessageId } : {}),
+            ...(a.replyInThread !== undefined ? { replyInThread: a.replyInThread } : {}),
             ...(startedAt ? { startedAt } : {}),
             ...(workingSince !== undefined ? { workingSince } : {}),
             ...(lastEventAt ? { lastEventAt } : {}),
@@ -827,6 +863,7 @@ export function reconcileRuns(
       workingSince: served ?? startedAt ?? now,
       lastEventAt: now,
       ...(a.triggerMessageId ? { triggerMessageId: a.triggerMessageId } : {}),
+      ...(a.replyInThread !== undefined ? { replyInThread: a.replyInThread } : {}),
     });
   }
   return s;
@@ -846,6 +883,28 @@ export const inMainTimeline = (
   r: { threadId: string | null; provisional?: boolean; triggerMessageId?: string | null },
   topLevelIds: ReadonlySet<string>,
 ) => r.threadId === null || Boolean(r.provisional && topLevelIds.has(r.triggerMessageId ?? r.threadId));
+
+/**
+ * A run that says "Ada is replying in the thread" under the message of the main timeline that asked it (ADR 0214),
+ * `threadId` being that message, until the thread has a reply. Not the app's own guess: that one shows in the channel.
+ */
+export const repliesUnder = (r: LiveRun, messageId: string) =>
+  r.threadId === messageId && r.replyInThread !== false && !r.provisional && r.status !== "failed";
+
+/** The agents replying under each message of the main timeline (`repliesUnder`) whose thread has no line yet. */
+export function replyingUnder(
+  runs: readonly LiveRun[],
+  topLevelIds: ReadonlySet<string>,
+  lined: { has: (threadId: string) => boolean },
+): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const r of runs) {
+    if (!topLevelIds.has(r.threadId) || lined.has(r.threadId) || !repliesUnder(r, r.threadId)) continue;
+    const ids = out.get(r.threadId) ?? [];
+    if (!ids.includes(r.agentId)) out.set(r.threadId, [...ids, r.agentId]);
+  }
+  return out;
+}
 
 /** Runs to show in a channel, oldest first. */
 export const runsInChannel = (state: StreamsState, channelId: string) =>

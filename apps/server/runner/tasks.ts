@@ -1332,7 +1332,12 @@ export class TaskManager {
       if (executor !== "shell") writeFileSync(path.join(dir, "stdin.txt"), input, { mode: 0o600 });
       // A Codex task's sandbox is what holds it: no way out through the agent's containers service (ADR 0169).
       const own = executor === "codex" ? withoutContainers(process.env) : process.env;
-      const base: NodeJS.ProcessEnv = { ...own, ...(secrets?.env ?? {}) };
+      // No Claude Code auto memory, as on a turn: the workspace's memory is the agent's.
+      const base: NodeJS.ProcessEnv = {
+        ...own,
+        ...(secrets?.env ?? {}),
+        ...(executor === "claude" ? { CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" } : {}),
+      };
       // As a turn's (ADR 0041 §5): the account's folder is the CLI's home and nothing else signs it in; a plan's key
       // goes in the env under the plan's name, a token only on descriptor 3 (`spawnWrapper`).
       const env = signIn ? accountEnv(signIn.kind, signIn.home, base) : base;

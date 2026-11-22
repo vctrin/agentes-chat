@@ -89,6 +89,7 @@ import {
   publishMachineStatus,
   publishMachineUpdated,
   shownStandby,
+  withTaskLimit,
 } from "./machines";
 import {
   DISK_REARM_USE,
@@ -436,6 +437,7 @@ export function isNewWork(request: MachineRequest) {
     case "phone.pair.cancel":
     // Pausing or resuming the computer itself: a resume must reach a paused one.
     case "pause.set":
+    case "limits.set":
     // A person's guide asking the computer to look for a phone, or its owner picking an iPhone on its Wi-Fi.
     case "phone.look":
     case "phone.wifi":
@@ -970,7 +972,10 @@ export function createMachineHub(deps: MachineHubDeps) {
     send(conn, { type: "agents", agents, ...(deleted.length ? { deleted } : {}) });
   }
 
-  /** `runner.state` (protocol 9): paused, resumed or a new `until`; stored and told to the org. */
+  /**
+   * `runner.state` (protocol 9): paused, resumed or a new `until`; stored and told to the org. `TASK_LIMIT_PROTOCOL`:
+   * or its task limit changed (kept with its size, as `hello` said it).
+   */
   async function runnerState(conn: MachineConnection, frame: Extract<RunnerFrame, { type: "runner.state" }>) {
     const machineId = conn.machineId as string;
     const wasPaused = pauseActive(conn.pause);
@@ -982,11 +987,13 @@ export function createMachineHub(deps: MachineHubDeps) {
         paused: conn.pause !== null,
         pausedUntil: conn.pause?.until ? new Date(conn.pause.until) : null,
         pausedByUserId: conn.pause?.by ?? null,
+        ...(frame.maxTasks ? { size: withTaskLimit(frame.maxTasks) } : {}),
         updatedAt: new Date(),
       })
       .where(eq(machines.id, machineId))
       .returning({ orgId: machines.orgId });
     if (!row) return;
+    if (frame.maxTasks) await publishDevicesChanged(pubsub, row.orgId);
     await publishMachineUpdated(pubsub, row.orgId, machineId, {
       paused: await pauseForApps(db, row.orgId, conn.pause),
     });

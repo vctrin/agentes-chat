@@ -13,6 +13,7 @@ import { type MemoryUpdate, publishChannelEvent, publishMessageCreated, takeStep
 import { type PendingFeedbackOffer, pendingFeedbackOfferOf } from "./feedback-offers";
 import { pgSafeStringify } from "./format";
 import type { Judge } from "./judge";
+import { queueLiveActivityRun } from "./live-activity-queue";
 import { insertMessage, type Message, messageView } from "./messages";
 import { notifyMissionApproval } from "./mission-tools";
 import { notifyQuestion } from "./notification-producers";
@@ -74,7 +75,7 @@ export interface RunWhere {
 
 /** Where a run's events and cards go (`replyThreadOf`). */
 export function runWhere(
-  run: Pick<AgentRun, "id" | "agentId" | "channelId" | "threadRootId" | "triggerMessageId">,
+  run: Pick<AgentRun, "id" | "agentId" | "channelId" | "threadRootId" | "triggerMessageId" | "replyInThread">,
 ): RunWhere {
   return { channelId: run.channelId, threadId: replyThreadOf(run), agentId: run.agentId, runId: run.id };
 }
@@ -648,6 +649,7 @@ async function locate(db: Database, id: BridgeIdentity): Promise<Located> {
       channelId: run.channelId,
       threadRootId: run.threadRootId,
       triggerMessageId: run.triggerMessageId,
+      replyInThread: run.replyInThread,
       ...(id.machineId ? { bridge: { machineId: id.machineId } } : {}),
       ...(run.brain ? { thinksWith: run.brain } : {}),
       // Tools on demand (ADR 0043): the same list the run's turns see.
@@ -1167,6 +1169,7 @@ export async function suspendRunForTool(
     // It parked mid-turn: its face and lists say so now, and so does the conversation that handed it the work (its
     // own events reach only the agents' DM, which nobody has open). The turn's end says it again.
     await announceAgentStatus(deps.pubsub, run.orgId, run.agentId).catch(() => {});
+    await queueLiveActivityRun(deps.db, run).catch(() => {});
     await announceConsultationChange(deps, run).catch(() => {});
   }
 

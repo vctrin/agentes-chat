@@ -69,6 +69,12 @@ export const wholeIn = (value: unknown, min: number, max: number): number | null
 export const isJsonObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
+/** What sits at a dot path in a JSON value (`conversation.id`, `items.0.id`), else undefined. */
+export const valueAtPath = (value: unknown, path: string) =>
+  path
+    .split(".")
+    .reduce<unknown>((v, k) => (v && typeof v === "object" ? (v as Record<string, unknown>)[k] : undefined), value);
+
 /** `value` when it is a finite number from `min` to `max`, else null: a stored measure that may hold anything. */
 export const numberIn = (value: unknown, min: number, max: number): number | null =>
   typeof value === "number" && Number.isFinite(value) && value >= min && value <= max ? value : null;
@@ -117,6 +123,15 @@ export function textOfBytes(bytes: Uint8Array): string | null {
     // ponytail: control-byte share as the binary test; magic bytes would catch a NUL-free binary that passes it.
     return control > bytes.length / 20 ? null : new TextDecoder("windows-1252").decode(bytes);
   }
+}
+
+/** A moment as m:ss (h:mm:ss past an hour). */
+export function clockOf(seconds: number): string {
+  const s = Math.floor(seconds);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = String(s % 60).padStart(2, "0");
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
 }
 
 /** `2.3 MB`, `12 KB`, `512 bytes`, `50.0 GB`: sizes in the English agents read. */

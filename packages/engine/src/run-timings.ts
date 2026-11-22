@@ -1,9 +1,9 @@
-import { BRAIN_TURN_MEASURES } from "@agenteschat/adapters";
+import { BRAIN_COLD_CAUSES, BRAIN_TURN_MEASURES } from "@agenteschat/adapters";
 import { type Database, rowsOf, type SQL, type schema, sql } from "@agenteschat/db";
 import { BRAIN_KINDS } from "./brain-settings";
 import { ValidationError } from "./errors";
 import { isJsonObject, numberIn, wholeOrNull } from "./format";
-import { instantOf } from "./operator-paging";
+import { heavyRead, instantOf } from "./operator-paging";
 
 /**
  * Where runs' time went, for the operator API: one run's kept claims (`runClaims`, in its trace) and the stages,
@@ -38,6 +38,11 @@ const turnMeasures = (t: Record<string, unknown>) =>
     (typeof BRAIN_TURN_MEASURES)[number],
     number | null
   >;
+
+/** Why a cold turn started a process, as its runner said (`BRAIN_COLD_CAUSES`); null when warm or not said. */
+const coldOf = (t: Record<string, unknown>) =>
+  t.warm === false && (BRAIN_COLD_CAUSES as readonly unknown[]).includes(t.cold) ? (t.cold as string) : null;
+const COLD_SQL = `^(${BRAIN_COLD_CAUSES.join("|")})$`;
 
 interface ClaimStage {
   stage: string;
@@ -80,7 +85,9 @@ export function runClaims(profiles: unknown) {
         stagesCut: stages.length > RUN_CLAIM_STAGES_MAX,
         computerTurns: (Array.isArray(claim.brain) ? claim.brain : [])
           .flatMap((t: unknown) =>
-            isJsonObject(t) && typeof t.warm === "boolean" ? [{ warm: t.warm, ...turnMeasures(t) }] : [],
+            isJsonObject(t) && typeof t.warm === "boolean"
+              ? [{ warm: t.warm, cold: coldOf(t), ...turnMeasures(t) }]
+              : [],
           )
           .slice(0, RUN_CLAIM_TURNS_MAX),
       };
@@ -107,14 +114,6 @@ const stageSql = (value: string) =>
 const listSql = (value: string) => `case when jsonb_typeof(${value}) = 'array' then ${value} else '[]'::jsonb end`;
 const pct = (q: number, column: string, filter = "") =>
   `percentile_cont(${q}) within group (order by ${column})${filter ? ` filter (where ${filter})` : ""}`;
-
-// Fleet-wide these read many rows: compiling them costs more than it saves, and one that still runs long is stopped.
-const heavyRead = (db: Database, statement: SQL) =>
-  db.transaction(async (tx) => {
-    await tx.execute(sql`set local jit = off`);
-    await tx.execute(sql`set local statement_timeout = '20s'`);
-    return tx.execute(statement);
-  });
 
 /** Nulls last, then as the database would order two words. */
 const byWord = (a: string | null, b: string | null) =>
@@ -182,7 +181,7 @@ export async function operatorRunTimings(db: Database, query: RunTimingsQuery, n
           ${sql.raw(pct(0.9, "ms"))} as "p90Ms", ${sql.raw(pct(0.99, "ms"))} as "p99Ms", max(ms) as "maxMs"
         from st where ms is not null group by brain, model, stage
       ), b as (
-        select c.brain, c.model, t.value->'warm' = 'true'::jsonb as warm,
+        select c.brain, c.model, t.value->'warm' = 'true'::jsonb as warm, t.value->>'cold' as cold,
           ${sql.raw(msSql("t.value->'initMs'"))} as init, ${sql.raw(msSql("t.value->'firstEventMs'"))} as first,
           ${sql.raw(msSql("t.value->'firstTokenMs'"))} as token, ${sql.raw(msSql("t.value->'firstAssistantMs'"))} as said,
           ${sql.raw(msSql("t.value->'retries'"))} as retries, ${sql.raw(msSql("t.value->'retryDelayMs'"))} as delay,
@@ -213,7 +212,12 @@ export async function operatorRunTimings(db: Database, query: RunTimingsQuery, n
             sum(delay) as "retryDelayMs", ${sql.raw(pct(0.5, "thought"))} as "thinkingCharsMedian",
             ${sql.raw(pct(0.9, "thought"))} as "thinkingCharsP90"
           from b group by brain, model order by turns desc, brain, model limit ${sql.raw(kept)}
-        ) g) as starts`),
+        ) g) as starts,
+        (select coalesce(jsonb_agg(to_jsonb(g)), '[]'::jsonb) from (
+          select brain, model, case when cold ~ '${sql.raw(COLD_SQL)}' then cold else 'unsaid' end as cause,
+            count(*)::int as turns
+          from b where not warm group by 1, 2, 3 order by turns desc, 1, 2, 3 limit ${sql.raw(kept)}
+        ) g) as "coldStarts"`),
     // A wait is a step written once: it lasts until the run's next step, its end, or the earlier of now and `to`.
     // Materialized, or each of the four measures of `sec` below would look the next step up again. The step's
     // condition is the one of `agent_run_steps`'s partial index on `run_id`, word for word: the planner reads the
@@ -244,6 +248,7 @@ export async function operatorRunTimings(db: Database, query: RunTimingsQuery, n
     groups: number;
     stages: (Group & { stage: string; count: number } & Measures)[];
     starts: (Group & { turns: number; warm: number } & Measures)[];
+    coldStarts: (Group & { cause: string; turns: number })[];
   }>(profileRows);
   const group = (g: Group) => ({ brain: g.brain, model: g.model });
   const inGroups = (a: Group, b: Group) => byWord(a.brain, b.brain) || byWord(a.model, b.model);
@@ -290,6 +295,9 @@ export async function operatorRunTimings(db: Database, query: RunTimingsQuery, n
         thinkingCharsP90: wholeOrNull(s.thinkingCharsP90),
       }))
       .sort((a, b) => inGroups(a, b) || b.turns - a.turns),
+    coldStarts: (found?.coldStarts ?? [])
+      .map((c) => ({ ...group(c), cause: c.cause, turns: Number(c.turns) }))
+      .sort((a, b) => inGroups(a, b) || b.turns - a.turns || byWord(a.cause, b.cause)),
     waits: rowsOf<Group & { cause: string; waits: number; runs: number } & Measures>(waitRows)
       .map((w) => ({
         cause: w.cause,

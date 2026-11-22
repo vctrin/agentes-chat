@@ -2,7 +2,6 @@ import type { Message, MessageReceipt, ReplyRef, ThreadInfo } from "@agenteschat
 import { runPosition } from "@agenteschat/client/lib/chat";
 import { memo, useCallback, useMemo } from "react";
 import Animated, { LayoutAnimationConfig } from "react-native-reanimated";
-import { chatHref } from "../../links/logic";
 import { PushOfferLine } from "../../push/PushOfferLine";
 import { FanStrip } from "../../queue/parts";
 import { useColors } from "../../shared/hooks";
@@ -14,6 +13,7 @@ import { SwipeReply } from "../SwipeReply";
 import type { MessageActionsContext } from "../sheets";
 import { ENTER, NATIVE_MENU } from "./constants";
 import type { MessageItem } from "./rows";
+import { useChatSheet } from "./sheet-mode";
 
 /** What every message row of the conversation is handed alike: callbacks that keep their identity. */
 export interface RowHands {
@@ -44,6 +44,7 @@ export const ChatMessage = memo(function ChatMessage({
   canReply,
   canMission,
   thread,
+  replying,
   menuThread,
   aboveThread,
   markReceipt,
@@ -66,6 +67,8 @@ export const ChatMessage = memo(function ChatMessage({
   canMission: boolean;
   /** The thread it starts, a link under it in the conversation. */
   thread: ThreadInfo | undefined;
+  /** The agents replying in the thread under it before it has a link, comma-joined (`replyingUnder`). */
+  replying: string | undefined;
   /** The thread its menu works with: the one it starts or the one it is in. */
   menuThread: ThreadInfo | undefined;
   aboveThread: boolean;
@@ -84,6 +87,8 @@ export const ChatMessage = memo(function ChatMessage({
 }) {
   const m = item.message;
   const c = useColors();
+  // In a file's sheet (ADR 0208) a message that arrives is there at once, in place: the sheet over the file stays still.
+  const inSheet = useChatSheet() !== null;
   const dir = useRowDirectory();
   const { onReply, onMission, onRemind } = hands;
   const reply = useCallback(() => onReply(m), [onReply, m]);
@@ -109,6 +114,7 @@ export const ChatMessage = memo(function ChatMessage({
       aboveThread={aboveThread}
       meId={meId}
       thread={thread}
+      replying={replying}
       inThread={isThread}
       {...(hands.onLongPress ? { onLongPress: hands.onLongPress } : {})}
       onRetry={hands.onRetry}
@@ -120,7 +126,7 @@ export const ChatMessage = memo(function ChatMessage({
   return (
     // My own words are there at once, whole (as every chat app's): only someone else's rise in.
     <Animated.View
-      entering={fresh && m.author.id !== meId ? ENTER : undefined}
+      entering={fresh && !inSheet && m.author.id !== meId ? ENTER : undefined}
       style={lit ? { backgroundColor: c.sunken } : undefined}
     >
       {/* Swipe right to answer it (a quote above the field); hold it for the system's menu (iOS) or the app's sheet. A
@@ -128,13 +134,7 @@ export const ChatMessage = memo(function ChatMessage({
           around it either way, so it isn't drawn again when it turns sent. The menu brings the plain view it lifts (the
           row can be a fragment: a pair row, a quote). */}
       <SwipeReply enabled={canReply && !m.local} onReply={reply}>
-        {NATIVE_MENU ? (
-          <MessageMenuFor context={menu} href={chatHref(m.channelId, m.threadId, m.id)}>
-            {row}
-          </MessageMenuFor>
-        ) : (
-          row
-        )}
+        {NATIVE_MENU ? <MessageMenuFor context={menu}>{row}</MessageMenuFor> : row}
       </SwipeReply>
       <LayoutAnimationConfig skipEntering>
         {m.author.type === "agent" && m.mentionedAgentIds.length > 1 ? (
