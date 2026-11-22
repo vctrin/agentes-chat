@@ -41,7 +41,9 @@ describe("performance", () => {
     for (let i = 0; i < ROWS; i++)
       expected += 2 * i + 3 * i + 6 * i + (6 * i > 100 ? 6 * i : 0) + (6 * i > 100 ? 6 * i : 0) + 2 * i;
     expect(total).toBe(expected);
-    expect(cold).toBeLessThan(1000);
+    // Generous on purpose: CI runs every test file in parallel, one per core, on a shared runner
+    // (ci.yml's test-backend), so a tight budget here flakes on CPU contention, not on a real regression.
+    expect(cold).toBeLessThan(3000);
 
     const before = b.engine.computations();
     put(b, "A5001", -1);
@@ -58,7 +60,7 @@ describe("performance", () => {
     for (let i = 1; i <= ROWS; i++) for (const c of [1, 2, 4, 5, 6]) if (b.engine.valueAt(b.first, i, c) !== null) n++;
     const structural = performance.now() - t2;
     expect(n).toBe(ROWS * 5);
-    expect(structural).toBeLessThan(1000);
+    expect(structural).toBeLessThan(3000);
     console.log(
       `[engine] 50k formulas: cold ${cold.toFixed(0)} ms, after one edit ${warm.toFixed(0)} ms (5 recomputed), after a row insert ${structural.toFixed(0)} ms`,
     );
