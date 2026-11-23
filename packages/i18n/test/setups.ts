@@ -197,6 +197,9 @@ export const SHOWN_ONLY: Record<Condition, readonly string[]> = {
     // the admins' line about it only where `ownerCreates` (false on agentes.chat, ADR 0156).
     "githubApp.server.",
     "githubApp.ownerHint",
+    // The same app as a line of Settings › Connectors: listed only where `setup` is there (its owner, off agentes.chat).
+    "connectors.store.appMissing",
+    "connectors.store.appLine",
   ],
   email: [
     // Said once the link to a new address went out, which only a server that sends e-mail does.

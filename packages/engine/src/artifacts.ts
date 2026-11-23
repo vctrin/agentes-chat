@@ -4089,6 +4089,39 @@ export async function announceLivePreview(deps: ArtifactDeps, orgId: string, fil
   });
 }
 
+/**
+ * After a message in a file's conversation (ADR 0199, 0208): the conversation the file was posted in hears
+ * `artifact.updated`, so its card there reads the file again and the line under it ("2 comments on the image") counts
+ * the new one, for everyone looking at that conversation.
+ */
+export async function announceFileConversation(
+  deps: Pick<ArtifactDeps, "db" | "pubsub">,
+  orgId: string,
+  messageId: string,
+) {
+  const [message] = await deps.db
+    .select({ channelId: schema.messages.channelId })
+    .from(schema.messages)
+    .where(and(eq(schema.messages.orgId, orgId), eq(schema.messages.id, messageId)));
+  if (!message) return;
+  const [row] = await deps.db
+    .select()
+    .from(artifacts)
+    .where(
+      and(
+        eq(artifacts.orgId, orgId),
+        eq(artifacts.conversationChannelId, message.channelId),
+        isNull(artifacts.deletedAt),
+      ),
+    );
+  if (!row?.channelId) return;
+  await publishChannelEvent(deps.pubsub, {
+    type: "artifact.updated",
+    channelId: row.channelId,
+    artifact: view(row, editableKind(row.kind)),
+  });
+}
+
 /** What a live file keeps on this server's storage besides its versions: its pictures there and its document. */
 async function liveKeptBytes(db: Database, fileId: string) {
   const [[assets], [doc]] = await Promise.all([

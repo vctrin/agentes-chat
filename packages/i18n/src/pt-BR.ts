@@ -2226,6 +2226,7 @@ export const ptBR = {
       team: "Quem é quem: pessoas, agentes e seus grupos",
       dashboards: "Números e gráficos que os agentes mantêm em dia",
       taskManager: "O que cada agente faz agora, e parar o que precisar",
+      code: "Programar com os agentes, cada pedido na sua worktree",
       approvalsPersonal: "O que seus agentes pedem para você liberar",
       proposalsPersonal: "O que seus agentes propõem mudar",
       threadsPersonal: "Conversas à parte, e as missões",
@@ -2235,6 +2236,7 @@ export const ptBR = {
       teamPersonal: "Seus agentes, e quem mais está aqui",
       dashboardsPersonal: "Números e gráficos que seus agentes mantêm em dia",
       taskManagerPersonal: "O que seus agentes fazem agora, e parar o que precisar",
+      codePersonal: "Programar com os seus agentes",
       homePersonal: "O seu dia: o que espera você e o que os seus agentes estão fazendo",
     },
     customizeSidebar: "Personalizar a barra lateral",
@@ -2339,7 +2341,8 @@ export const ptBR = {
     searchWorkspace: "Buscar no workspace",
     summary_one: "{{people}} membro · {{agents}} agentes",
     summary_other: "{{people}} membros · {{agents}} agentes",
-    waiting: "Esperando você",
+    /** The sidebar's one entry for everything that involves me: what waits on me, what is new, what I decided. */
+    waiting: "Caixa de entrada",
     approvals: "Aprovações",
     proposals: "Propostas de melhoria",
     issues: "Tarefas",
@@ -2350,6 +2353,7 @@ export const ptBR = {
     team: "Equipe",
     dashboards: "Painéis",
     taskManager: "Gerenciador de tarefas",
+    code: "Código",
     calendar: "Calendário",
     drive: "Drive",
     members: "Membros",
@@ -2551,7 +2555,7 @@ export const ptBR = {
       sectors: "Setores",
       usage: "Governança e uso",
     },
-    noOwner: "Sem responsável",
+    noOwner: "Administradores",
     workingNow: "Trabalhando agora",
     available: "Disponível",
     archived: "Arquivados",
@@ -2573,7 +2577,7 @@ export const ptBR = {
         mine: "Meus",
         working: "Trabalhando agora",
         waiting: "Esperando você",
-        noOwner: "Sem responsável",
+        noOwner: "Com os administradores",
       },
       groupBy: "Agrupar por",
       by: {
@@ -4161,7 +4165,7 @@ export const ptBR = {
   },
   dm: {
     subtitle: "{{role}} · de {{owner}}",
-    subtitleNoOwner: "{{role}} · sem responsável",
+    subtitleNoOwner: "{{role}} · dos administradores",
     emptyAgent: "Peça para lembrar, esquecer ou trabalhar de outro jeito.",
     opening: "Abrindo a conversa…",
     title: "Mensagem direta com {{name}}",
@@ -4554,7 +4558,7 @@ export const ptBR = {
     viewProfile: "Ver perfil",
     agent: "Agente",
     owner: "Responsável",
-    noOwner: "sem responsável",
+    noOwner: "Administradores",
     model: "Modelo",
     can: "Pode",
     budgetUsed: "{{percent}} do orçamento usado este mês",
@@ -5297,6 +5301,7 @@ export const ptBR = {
       agent: "Propõe um novo agente",
       team: "Propõe um time",
       firstTask: "Primeira tarefa",
+      code: "Sugere uma sessão de código",
     },
     waitingYou: "esperando você",
     waitingFor: "esperando {{name}}",
@@ -5314,6 +5319,7 @@ export const ptBR = {
       agent: "<b>{{name}}</b> propõe um novo agente · {{what}}",
       team: "<b>{{name}}</b> propõe um time · {{what}}",
       firstTask: "<b>{{name}}</b> sugere uma primeira tarefa · {{what}}",
+      code: "<b>{{name}}</b> sugere uma sessão de código · {{what}}",
       more: "+{{count}}",
       /** What waits on me here with its card not loaded (older, or in a thread): "Ver" goes to the oldest. */
       here_one: "{{count}} esperando você aqui",
@@ -5566,7 +5572,7 @@ export const ptBR = {
     firstRun: "Continue de onde parou · {{done}} de {{total}}",
   },
   notifications: {
-    title: "Notificações",
+    title: "Caixa de entrada",
     /** "Tirar de volta" on `plan_lent`: the person's plan leaves the agent someone else gave it to, or all of them. */
     planLent: {
       takeBack: "Tirar de volta",
@@ -5604,7 +5610,7 @@ export const ptBR = {
         computer: "Trocar computador",
       },
     },
-    docTitleUnread: "({{count}}) Notificações",
+    docTitleUnread: "({{count}}) Caixa de entrada",
     summaryWaiting_one: "{{count}} coisa esperando você",
     summaryWaiting_other: "{{count}} coisas esperando você",
     summaryUnread_one: "{{count}} não lida",
@@ -5621,6 +5627,8 @@ export const ptBR = {
       waiting: "Esperando você",
       unread: "Não lidas",
       reactions: "Reações",
+      /** The requests already decided: approved, refused, expired. */
+      requests: "Pedidos decididos",
       done: "Concluídas",
     },
     keys: {
@@ -5863,6 +5871,9 @@ export const ptBR = {
     noneUnread: "Tudo lido.",
     noneHere: "Nada aqui por enquanto.",
     noneDone: "Nada concluído nos últimos 30 dias.",
+    noneRequests: "Nenhum pedido decidido ainda.",
+    /** A proposal's row in the inbox, after the agent's name. */
+    proposes: "propõe uma melhoria",
     more: "Mostrar mais",
   },
   approvals: {
@@ -6800,6 +6811,7 @@ export const ptBR = {
         empty_reply: "O modelo não respondeu nada.",
         model_refused: "O modelo se recusou a responder.",
         agent_archived: "O agente foi arquivado.",
+        code_session_unavailable: "A worktree da sessão não está disponível no computador.",
         provider_error: "O provedor do modelo deu erro: {{detail}}",
         /** Its 401, 402, 403 or 429: the provider's own words (`detail`) show only on hover. */
         provider_account: "O provedor recusou a chave: ela pode estar inválida, sem crédito ou sem cota.",
@@ -7600,9 +7612,9 @@ export const ptBR = {
     noChannels: "Você ainda não está em nenhum canal. Dá para adicionar o agente a um canal depois.",
     owner: "Responsável",
     you: "{{name}} (você)",
-    noOwnerOption: "Sem responsável",
-    noOwnerShort: "Os admins recebem os avisos e aprovam",
-    noOwnerHelp: "Sem responsável, os admins recebem os avisos e aprovam as ações sensíveis.",
+    noOwnerOption: "Administradores",
+    noOwnerShort: "Recebem os avisos e aprovam",
+    noOwnerHelp: "Os administradores recebem os avisos e aprovam as ações sensíveis.",
     ownerHelp: "Recebe os avisos de orçamento e aprova as ações sensíveis.",
     /** A role as its owner (ADR 0085, addendum of 2026-11-21): whoever holds it gets them, any of them decides. */
     ownerRoleHelp:
@@ -7669,7 +7681,6 @@ export const ptBR = {
     noTools: "Nenhuma ferramenta",
     onlyContext: "Só o contexto do workspace",
     noChannelsReview: "Nenhum canal: chame por @ ou mensagem direta",
-    noOwnerAdmins: "Sem responsável (admins)",
     editSection: "Editar {{section}}",
     hints: {
       role: "Escolha um ponto de partida",
@@ -8279,7 +8290,7 @@ export const ptBR = {
       none: "Nenhum link ativo.",
     },
     ownerLine: "Responsável: {{name}}",
-    noOwner: "Sem responsável",
+    noOwner: "Responsável: administradores",
     budgetLine: "{{percent}} do orçamento de {{month}}",
     noAgents: "Nenhum agente ainda.",
   },
@@ -11724,6 +11735,213 @@ export const ptBR = {
     createKeywords: "criar novo adicionar",
     empty: "Nada com “{{q}}”.",
   },
+  /** Código (ADR 0215): sessões em que um pedido é trabalhado numa worktree própria no computador de um agente. */
+  codeSessions: {
+    /** The beta notice, once, the first time the Code page opens: what the mode is, as a diff. */
+    beta: {
+      title: "O Coding mode está em beta",
+      text: "Funciona de verdade e muda toda semana. Às vezes trava. Quando travar, o problema é nosso.",
+      go: "Começar",
+      added: {
+        worktree: "Cada pedido na sua worktree, com Git, Arquivos, Tela e Terminal",
+        anyAi: "Qualquer IA: Claude Code, Codex, OpenCode ou um modelo pela chave",
+        beside: "Edite os arquivos e abra o terminal ao lado da conversa",
+      },
+      removed: {
+        paste: "Copiar e colar código entre o chat e o editor",
+        watch: "Ficar olhando o terminal até o agente terminar",
+      },
+    },
+    title: "Código",
+    state: {
+      waiting: "esperando você",
+      working: "trabalhando",
+      preparing: "preparando a worktree",
+      failed: "não deu para preparar",
+      pr: "PR #{{number}}",
+      idle: "pronto",
+    },
+    list: {
+      label: "Sessões de código",
+      new: "Nova sessão",
+      newRow: "Nova sessão",
+      resize: "Largura da lista",
+      /** Ao lado do nome de um projeto local na lista. */
+      local: "no computador",
+      empty: "As sessões que você abre, ou para as quais é chamado, aparecem aqui.",
+    },
+    home: {
+      /** O título da casa, embaixo do agente em cubos (o nome do modo, igual em toda língua). */
+      mode: "Coding mode",
+      /** O que o bloco do título derruba quando a casa abre (enfeite, igual em toda língua). */
+      was: "Chat mode",
+      /** Ao lado do nome do modo: a página ainda é beta. */
+      beta: "Beta",
+      noAgents:
+        "Nenhum agente programa num computador ainda. Nas configurações de um agente, dê a ele um computador e um app de programação, ou deixe ele rodar código lá.",
+      placeholder: "Descreva a mudança, o bug ou a dúvida",
+      label: "O que fazer",
+      agent: "Agente",
+      repo: "Onde trabalhar",
+      repoPlaceholder: "Repositório ou projeto",
+      repoSearch: "Busque, ou digite owner/name ou um nome novo",
+      /** Um nome sem owner: um projeto novo só no computador do agente, sem remote. */
+      newLocal: "Novo projeto no computador: {{name}}",
+      useRepo: "Usar {{repo}}",
+      repoNote: "Um nome sem owner cria um projeto no computador do agente, fora do GitHub.",
+      hint: "@ chama alguém para a sessão",
+      start: "Começar",
+    },
+    view: {
+      gone: "Esta sessão não existe mais, ou não é sua para ver.",
+      resize: "Largura da conversa",
+      composer: "Responder · @ chama alguém · / comandos",
+      more: "Mais",
+      openPr: "Abrir o PR #{{number}}",
+      close: "Fechar a sessão",
+      closeHint: "Sai da lista: a worktree vai embora, a branch fica",
+      failed: "Não deu para preparar a worktree.",
+      retry: "Tentar de novo",
+      githubAccess:
+        "Este workspace não tem acesso ao GitHub para esse repositório. Conecte o GitHub em Configurações\u00a0›\u00a0Conectores, ou comece uma sessão num projeto no computador (só um nome).",
+    },
+    panel: {
+      label: "Painel da sessão",
+      screen: "Tela",
+      terminal: "Terminal",
+      terminalHeight: "Altura do terminal",
+      notReady: "A worktree ainda está sendo preparada.",
+      agent_preparing: "está preparando a worktree",
+      agent_failed: "não conseguiu preparar a worktree",
+      agent_working: "está trabalhando",
+      agent_waiting: "espera você",
+      agent_idle: "está livre",
+    },
+    /** A aba Git do painel: a branch, o que não foi commitado, os commits, cada diff no lugar. */
+    gitTab: {
+      /** On a file's diff: opens the file itself, to edit it. */
+      openFile: "Abrir o arquivo",
+      label: "Git",
+      /** Depois do nome da branch, no topo da aba. */
+      from: "de {{base}}",
+      ahead_one: "{{count}}{{more}} commit à frente",
+      ahead_other: "{{count}}{{more}} commits à frente",
+      refresh: "Ler de novo",
+      reading: "Lendo o git no computador…",
+      all: "Tudo desde {{base}}",
+      uncommitted: "Não commitado",
+      clean: "Tudo commitado.",
+      changesMore: "E mais mudanças: as primeiras mil estão aqui.",
+      commits: "Commits",
+      noCommits: "Nenhum commit desde {{base}} ainda.",
+      more: "E commits mais antigos.",
+      back: "Voltar",
+      split: "Lado a lado",
+      none: "Nada mudou aqui.",
+      tooLarge: "Grande demais para mostrar aqui. Os arquivos que mudaram estão listados.",
+      /** A letra de uma mudança, em palavras. */
+      status: {
+        modified: "Modificado",
+        added: "Novo",
+        deleted: "Apagado",
+        renamed: "Renomeado",
+        untracked: "Novo, ainda fora do git",
+      },
+    },
+    /** A aba Arquivos do painel: a árvore da worktree, uma busca, um arquivo só para ler. */
+    files: {
+      label: "Arquivos",
+      search: "Buscar arquivo",
+      /** The search's field, in the app's palette (as ⌘K). */
+      searchPlaceholder: "Buscar arquivo pelo nome ou pela pasta",
+      /** The palette's first group: the files the session changed. */
+      changedGroup: "Alterados",
+      count_one: "{{formatted}} arquivo",
+      count_other: "{{formatted}} arquivos",
+      refresh: "Ler de novo",
+      reading: "Lendo os arquivos no computador…",
+      empty: "Nenhum arquivo ainda.",
+      noMatch: "Nenhum arquivo com “{{query}}”.",
+      truncated_one: "Mostrando o primeiro {{formatted}} arquivo.",
+      truncated_other: "Mostrando os primeiros {{formatted}} arquivos.",
+      hasChanges: "Tem mudanças",
+      opening: "Abrindo o arquivo…",
+      cut: "Só os primeiros {{size}} aparecem aqui.",
+      save: "Salvar",
+      unsaved: "Não salvo",
+      tooLong: "Grande demais para editar aqui",
+      moved: "Este arquivo mudou no computador depois que você abriu.",
+      reload: "Carregar o de lá",
+      overwrite: "Salvar o meu por cima",
+      unsavedAsk: "Este arquivo tem mudanças que você não salvou.",
+      keepEditing: "Continuar editando",
+      discard: "Descartar",
+      /** Por que um arquivo não aparece. */
+      state: {
+        binary: "Arquivo binário: não dá para mostrar aqui.",
+        missing: "Este arquivo não existe mais.",
+        ignored: "O git ignora este arquivo, então ele não aparece aqui.",
+        secret: "Arquivos .env não aparecem aqui: costumam ter segredos.",
+        outside: "Este arquivo é um atalho para fora da worktree.",
+      },
+    },
+    /** The session's tabs under its header: the conversation, open files, terminals. */
+    tabs: {
+      label: "Abas da sessão",
+      talk: "Conversa",
+      terminalN: "Terminal {{n}}",
+      close: "Fechar {{name}}",
+      add: "Nova aba",
+    },
+    screen: {
+      computer: "Computador do {{name}}",
+      computer_female: "Computador da {{name}}",
+      menu: "Telas que o {{name}} usa",
+      menu_female: "Telas que a {{name}} usa",
+      computerHint: "Onde a worktree está",
+      onHost: "em {{host}}",
+      exitFull: "Sair da tela cheia",
+    },
+    /** Quem está na sessão: rostos ao lado do botão do git, uma lista onde dá para tirar alguém. */
+    who: {
+      label: "Na sessão",
+      open_one: "{{count}} na sessão",
+      open_other: "{{count}} na sessão",
+      agent: "trabalha na worktree",
+      opener: "abriu a sessão",
+      leave: "Sair",
+      remove: "Tirar {{name}} da sessão",
+      invite: "Para chamar alguém, escreva @ e o nome na conversa.",
+    },
+    /** Um card do navegador ou do computador na conversa, como uma linha: a tela é a do painel. */
+    screenLine: {
+      show: "Ver na Tela",
+      held: "Uma pessoa está no controle da tela",
+    },
+    /** An agent suggests a session for a change asked in the chat (ADR 0215 §11): the card under its reply. */
+    suggestion: {
+      label: "Sugestão de sessão de código",
+      /** The project, and whose computer it works on. */
+      detail: "{{repo}} · no computador do {{name}}",
+      detail_female: "{{repo}} · no computador da {{name}}",
+      more: "Ver o pedido",
+      open: "Abrir sessão",
+      here: "Fazer aqui",
+      opening: "Abrindo a sessão…",
+      opened: "Você abriu a sessão",
+      openedBy: "{{name}} abriu a sessão",
+      keptHere: "Você preferiu fazer aqui",
+      keptHereBy: "{{name}} preferiu fazer aqui",
+      see: "Ver sessão",
+    },
+    /** At the top of a session opened from a suggestion: where it came from. */
+    from: {
+      dm: "Aberta da sua conversa com o {{name}}",
+      dm_female: "Aberta da sua conversa com a {{name}}",
+      channel: "Aberta de #{{name}}",
+      see: "Ver conversa",
+    },
+  },
   code: {
     ranSummary_one: "Rodou {{count}} linha de {{language}} · saída {{size}}",
     ranSummary_other: "Rodou {{count}} linhas de {{language}} · saída {{size}}",
@@ -12524,6 +12742,11 @@ export const ptBR = {
       textOnly: "Só lê texto",
       search: "Buscar modelos",
       account: "Conta",
+      /** The account part of the AI's control: what it says to a screen reader. */
+      accountOf: "Conta: {{account}}",
+      connectAccount: "Conectar outra conta",
+      /** The AIs it may think with, as a row of their marks. */
+      ais: "IA",
       connect: "Conectar uma IA",
       applies: "Vale a partir da próxima resposta.",
       more: "Mais opções",
@@ -13548,14 +13771,51 @@ export const ptBR = {
     added: "{{repo}} entra na lista ao salvar.",
   },
   connectors: {
+    /** The connectors as a store: featured services, a line per service with one button, and each one's page. */
+    store: {
+      featured: "Destaques",
+      suggested: "Sugerido",
+      seeAll: "Ver todos",
+      more: "Ver mais",
+      moreName: "Ver mais sobre {{name}}",
+      connected: "Conectado",
+      browse: "Ver conectores",
+      notListed: "Tem um serviço que não está na loja?",
+      howLabel: "Como conecta",
+      whoAll: "Todos os agentes",
+      whoChoose: "Você escolhe depois",
+      asksLabel: "Aprovação",
+      asksSensitive: "O que é sensível pede você",
+      afterTitle: "Depois de conectar",
+      agents_one: "{{count}} agente",
+      agents_other: "{{count}} agentes",
+      whoEvery_one: "O seu agente usa.",
+      whoEvery_other: "Todos os {{count}} agentes usam.",
+      whoSome_one: "{{names}}. O outro agente não usa.",
+      whoSome_other: "{{names}}. Os outros {{count}} agentes não usam.",
+      change: "Alterar",
+      see: "Ver",
+      account: "Conta",
+      toolsText: "O que os agentes podem fazer com ela, e o que pede você.",
+      addressesText: "Com quem os agentes podem falar por esta caixa.",
+      bandTitle_one: "{{count}} serviço para conectar",
+      bandTitle_other: "{{count}} serviços para conectar",
+      bandText: "{{names}} e outros.",
+      appMissing: "Falta criar o app do servidor",
+      appEvents: "Faltam eventos no app",
+      appLine: "App deste servidor",
+      eventsLine: "Eventos",
+    },
+    howShort: {
+      oneClick: "Um clique",
+      oauthOrKey: "Um clique ou chave de API",
+      key: "Chave de API",
+      appPassword: "Senha de app",
+      addressPassword: "Endereço e senha",
+      composio: "Pela Composio",
+    },
     title: "Conectores",
     add: "Adicionar conector",
-    mcp: {
-      title: "MCPs",
-      add: "Adicionar MCP",
-      list: "Servidores MCP conectados",
-      none: "Os servidores MCP que você conectar pelo endereço aparecem aqui.",
-    },
     /** Connections split as the Vault splits its items: the team's and each person's (ADR 0099 addendum). */
     personal: {
       note: "Só você abre estas conexões. Seus agentes só usam quando você pede.",
@@ -13593,9 +13853,6 @@ export const ptBR = {
         "Todos do workspace passam a ver. Quem gerencia agentes escolhe quais agentes usam, e o dono de um agente pode desligar no seu. Um agente que usa todos os apps conectados passa a usar na hora.",
       moved: "{{name}} agora é da equipe.",
     },
-    addTitle: "Adicionar conector",
-    catalogText: "Conecte uma vez para a {{org}}. Depois escolha o que cada agente pode usar.",
-    catalog: "Conectores disponíveis",
     categories: "Categorias",
     category: {
       all: "Todos",
@@ -13616,8 +13873,6 @@ export const ptBR = {
     connectName: "Conectar {{name}}",
     reconnectName: "Reconectar {{name}}",
     addAccountName: "Adicionar outra conta do {{name}}",
-    other: "Não achou?",
-    otherText: "Conecte qualquer serviço pelo endereço dele.",
     search: "Buscar conector",
     searchPlaceholder: "Buscar por nome ou o que faz",
     empty: "Nenhum conector com “{{q}}”",
@@ -13631,8 +13886,6 @@ export const ptBR = {
     more: "Mais serviços",
     tileConnected: "{{name}}, conectado",
     tileSoon: "{{name}}, em breve",
-    otherTitle: "Outro serviço",
-    otherDetail: "Qualquer serviço que ofereça conexão para agentes, pelo endereço dele (começa com https://).",
     otherSteps: {
       "1": "Você cola o endereço e autoriza na página do serviço",
       "2": "A gente classifica o que cada ferramenta faz",
@@ -13640,7 +13893,6 @@ export const ptBR = {
     },
     otherConnect: "Conectar pelo endereço",
     detail: {
-      close: "Fechar detalhe",
       can: "O que os agentes poderão fazer",
       afterText: "Nenhum agente usa até você escolher.",
       allText: "Ao conectar, todos os agentes podem usar. Dá para ajustar depois.",
@@ -13648,8 +13900,6 @@ export const ptBR = {
       accountsText: "Cada conta tem quem usa e níveis próprios.",
       reconnect: "Reconectar",
       replaceText: "Substitui o login atual. Quem usa continua igual.",
-      connected: "Já conectado",
-      how: "Como funciona",
     },
     how: {
       oneClick: "Um clique: você autoriza na página do serviço",
@@ -13752,6 +14002,10 @@ export const ptBR = {
         "2": "Criar e ajustar campanhas",
         ask: "Ativar anúncios e mudar orçamentos sempre pedem sua aprovação",
       },
+      tiktok_ads: {
+        "1": "Ver campanhas, grupos de anúncios e resultados",
+        "2": "Criar e ajustar campanhas e anúncios",
+      },
       google_docs: { "1": "Buscar e ler documentos", "2": "Criar e editar documentos" },
       google_sheets: { "1": "Ler planilhas", "2": "Adicionar linhas e atualizar células" },
       google_calendar: {
@@ -13839,7 +14093,6 @@ export const ptBR = {
         ask: "Cada envio sempre pede sua aprovação",
       },
     },
-    connectedList: "Conectados",
     connected: "Conectado",
     connectedAs: "Conectado como {{account}}",
     reconnectAdds: "Reconecte o {{name}} para os agentes também poderem {{what}}.",
@@ -13967,6 +14220,7 @@ export const ptBR = {
       amplitude: "Gráficos, dashboards e experimentos.",
       himetrica: "Visitantes, funis, receita e busca orgânica.",
       meta_ads: "Campanhas e resultados de anúncios no Facebook e Instagram.",
+      tiktok_ads: "Campanhas, grupos de anúncios e anúncios do TikTok, com os resultados.",
       klaviyo: "Campanhas, fluxos, listas e perfis.",
       millionsend: "Campanhas de email, listas e contatos.",
       semrush: "Dados de palavras-chave, domínios e backlinks.",
@@ -14776,6 +15030,7 @@ export const ptBR = {
       web_search: "Buscar na web",
       web_fetch: "Ler página da web",
       image_search: "Buscar imagens",
+      show_image: "Mostrar imagens da web",
       create_routine: "Criar rotina",
       update_routine: "Alterar rotina",
       delete_routine: "Apagar rotina",
@@ -15592,6 +15847,10 @@ export const ptBR = {
       pageOf: "{{page}} de {{count}}",
       pdfFailed: "Não deu para mostrar este PDF aqui. Baixe para abrir.",
       loadFailed: "Não deu para mostrar esta imagem aqui.",
+      /** On the file's bar with its comments open: whether a press marks the file. */
+      mark: "Marcar",
+      markOff: "Parar de marcar: o clique volta a mover o arquivo",
+      markOn: "Marcar: o clique comenta um ponto ou uma área",
       hint: {
         image: "Clique para marcar um ponto ou arraste para marcar uma área",
         video: "Clique no vídeo para comentar neste momento, ou arraste para marcar uma área",
@@ -15730,6 +15989,20 @@ export const ptBR = {
       computer: "O computador não conseguiu fazer isso agora. Confira se ele está ligado e tente de novo.",
     },
     /** Setting up a GitHub or Sentry routine's webhook: `repo` is owner/name, `status` GitHub's HTTP status. */
+    /** Uma sessão de código (ADR 0215): o que impede de começar uma, ou o painel de ler o computador do agente. */
+    codeSession: {
+      noComputer: "Este agente ainda não tem computador. Dê um a ele nas configurações dele para programar com ele.",
+      cannotCode:
+        "Este agente não programa no computador dele. Dê a ele um app de programação nas configurações, ou deixe ele rodar código lá.",
+      repoNotAllowed:
+        "Este agente não pode trabalhar nesse repositório. Escolha outro, ou adicione esse nas configurações do agente.",
+      notYours: "Só quem abriu a sessão, ou um admin, fecha a sessão.",
+      notReady: "A worktree da sessão ainda não está pronta. Tente de novo daqui a pouco.",
+      fileChanged: "Este arquivo mudou no computador depois que você abriu.",
+      fileLocked: "Este arquivo não pode ser editado aqui.",
+      suggestionGone: "Essa sugestão já foi respondida.",
+      suggestionNotYours: "Só quem pediu decide se abre a sessão.",
+    },
     webhook: {
       githubNoAccess:
         "O GitHub deste workspace não pode criar webhooks no {{repo}}. Siga os passos abaixo para criar à mão.",
@@ -18584,6 +18857,10 @@ export const ptBR = {
         merged: "{{who}} fez o merge do PR #{{number}} ({{repo}}) no GitHub",
         closed: "{{who}} fechou o PR #{{number}} ({{repo}}) no GitHub",
         closedIssue: "{{who}} fechou a issue #{{number}} ({{repo}}) no GitHub",
+        /** Numa sessão de código: uma verificação (teste ou build automático do GitHub) não passou no PR da sessão. */
+        checkFailed: "A verificação «{{check}}» não passou no PR #{{number}} ({{repo}}) no GitHub",
+        /** O mesmo antes de haver PR: no commit (`commit`, o id curto) que o agente enviou. */
+        checkFailedCommit: "A verificação «{{check}}» não passou no commit {{commit}} ({{repo}}) no GitHub",
         /** Na linha de alguém a quem o agente não responde: uma pessoa daqui pede para o agente responder lá. */
         ask: "Pedir resposta",
         /** A linha depois que alguém pediu (`asker`), no lugar do botão. */
@@ -18687,6 +18964,7 @@ export const ptBR = {
         runningSkillScriptAny: "Rodou um script de skill",
         fetchingFile: "Trouxe um arquivo",
         proposingMission: "Propôs uma missão",
+        suggestingCodeSession: "Sugeriu uma sessão de código",
         messagingMission: "Mandou um recado para a missão",
         updatingPlan: "Atualizou o plano",
         reportingProgress: "Relatou o progresso",
@@ -18807,6 +19085,7 @@ export const ptBR = {
       runningSkillScriptAny: "rodando um script de skill",
       fetchingFile: "trazendo um arquivo",
       proposingMission: "propondo uma missão",
+      suggestingCodeSession: "sugerindo uma sessão de código",
       messagingMission: "mandando um recado para a missão",
       updatingPlan: "atualizando o plano",
       reportingProgress: "relatando o progresso",
@@ -20523,6 +20802,57 @@ export const ptBR = {
     screenOff: "A tela está desligada",
     screenOffHelp: "Ela liga quando alguém assiste.",
   },
+  /** A coding agent's own tool calls in a code session, one line each as in a terminal: "Read src/app.ts". */
+  cliTools: {
+    read: "Leu",
+    search: "Buscou",
+    edit: "Editou",
+    write: "Escreveu",
+    run: "Rodou",
+    fetch: "Abriu",
+    /** Um subagente do próprio CLI (ADR 0215): "Pediu a um subagente · Revisar o HTML". */
+    delegate: "Pediu a um subagente",
+    skill: "Usou a skill",
+    workflow: "Rodou um workflow",
+    other: "Usou",
+    running: {
+      read: "Lendo",
+      search: "Buscando",
+      edit: "Editando",
+      write: "Escrevendo",
+      run: "Rodando",
+      fetch: "Abrindo",
+      delegate: "Pedindo a um subagente",
+      skill: "Usando a skill",
+      workflow: "Rodando um workflow",
+      other: "Usando",
+    },
+    lines: "+{{added}} −{{removed}}",
+    added: "+{{added}}",
+    found_one: "{{count}} lugar",
+    found_other: "{{count}} lugares",
+    files_one: "{{count}} arquivo",
+    files_other: "{{count}} arquivos",
+    passed_one: "{{count}} passou",
+    passed_other: "{{count}} passaram",
+    failedTests_one: "{{count}} falhou",
+    failedTests_other: "{{count}} falharam",
+    exit: "saiu com {{code}}",
+    /** A code session's subagents and workflows while they work (ADR 0215), live in the agent's row. */
+    progress: {
+      block: "Subagentes do {{name}}",
+      block_female: "Subagentes da {{name}}",
+      subagent: "Subagente",
+      agents_one: "{{count}} subagente",
+      agents_other: "{{count}} subagentes",
+      done: "{{done}} de {{total}} prontos",
+      /** The bar above the composer while subagents work (the agent's name before it). */
+      asking_one: "Pedindo a um subagente",
+      asking_other: "Pedindo a {{count}} subagentes",
+      /** After the agent's own step in the bar, and after "trabalhando" in the session list. */
+      workflowShort: "workflow {{done}} de {{total}}",
+    },
+  },
   agentComputer: {
     title: "Computador do {{name}}",
     title_female: "Computador da {{name}}",
@@ -20632,6 +20962,25 @@ export const ptBR = {
       upright: "Voltar a tela para em pé",
       message: "Mensagem para {{name}}",
     },
+  },
+  /** A code session's Terminal tab (ADR 0215): a shell on the agent's computer, in the session's folder. */
+  codeTerminal: {
+    label: "Terminal",
+    opening: "Abrindo o terminal…",
+    openAgain: "Abrir de novo",
+    ended: "O shell terminou",
+    dropped: "A conexão com o terminal caiu",
+    moved: "Este terminal está aberto em outra janela",
+    screening: "O terminal está desligado aqui",
+    forbidden: "Só quem pode usar esse computador abre o terminal",
+    offline: "Computador offline",
+    outdated: "Atualize o computador para abrir o terminal na pasta da sessão",
+    unavailable: "O computador deste agente não abre terminal",
+    off: "O terminal está desligado em {{computer}}",
+    busy: "Este computador já tem o máximo de terminais abertos. Feche um e abra de novo.",
+    paused: "O computador está pausado",
+    failed: "Não deu para abrir o terminal",
+    agentFolder: "O terminal abriu na pasta do agente. Atualize o computador para abrir na pasta da sessão.",
   },
   /** Agora (ADR 0128 addendum): the whole workspace's work in one place, a button beside "Ir para…" and its list. */
   agora: {
@@ -20759,6 +21108,7 @@ export const ptBR = {
       stopAllOf: "Parar tudo de {{name}}",
       open: "Abrir na conversa",
       openManager: "Abrir no gerenciador",
+      more: "Mais ações",
     },
     confirm: {
       /** One task and the agents it asked, stopped together. */

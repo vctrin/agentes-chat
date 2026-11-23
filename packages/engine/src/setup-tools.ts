@@ -243,7 +243,7 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
  * A catalog connector or one-click MCP server by its id or name ("GitHub", "google-drive"). With `server`, as this
- * server's "Adicionar conector" lists it, whether it connects here (`soon`: its vendor hasn't approved agentes.chat).
+ * server's connectors store lists it, whether it connects here (`soon`: its vendor hasn't approved agentes.chat).
  */
 export function catalogConnector(
   name: string,
@@ -261,7 +261,7 @@ export function catalogConnector(
   return hit ? { id: hit.id, label: hit.label, available: hit.available, soon: hit.soon } : null;
 }
 
-/** Names of what "Adicionar conector" connects outside the catalog list: a mailbox (Email) or a database. */
+/** Names of what the connectors store connects outside the catalog list: a mailbox (Email) or a database. */
 const MAILBOX_NAMES = new Set([
   "email",
   "mail",
@@ -878,7 +878,7 @@ export function createSetupToolSource(deps: {
             const where = MAILBOX_NAMES.has(slug(app)) ? "Email" : DATABASE_NAMES.has(slug(app)) ? "Database" : null;
             return {
               content: where
-                ? `This isn't connected with a card: a person who manages connectors does it in Settings › Connectors and MCPs › Add connector › ${where} (in Portuguese, Configurações › Conectores e MCPs › Adicionar conector › ${where === "Email" ? "Email" : "Banco de dados"}). Tell the person exactly this.`
+                ? `This isn't connected with a card: a person who manages connectors does it in Settings › Connectors and MCPs › Browse connectors › ${where} (in Portuguese, Configurações › Conectores e MCPs › Ver conectores › ${where === "Email" ? "Email" : "Banco de dados"}). Tell the person exactly this.`
                 : `"${app}" isn't in the catalog. Ask the person for its MCP server's https address and pass it as \`url\`.`,
               isError: true,
             };

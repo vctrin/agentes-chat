@@ -557,12 +557,52 @@ export const MCP_PRESETS: readonly McpPreset[] = [
     serverUrl: "https://mcp.zapier.com/api/mcp/mcp",
   },
   {
+    // TikTok for Business' own server, every tool at once (the big ones reach agents as a directory).
+    id: "tiktok-ads",
+    category: "marketing",
+    label: "TikTok Ads",
+    description: "TikTok ad campaigns, ad groups, ads and their results.",
+    icon: "tiktok",
+    serverUrl: "https://business-api.tiktok.com/open_mcp/tt-ads-mcp-flat",
+  },
+  {
     id: "canva",
     category: "marketing",
     label: "Canva",
     description: "Canva designs and templates.",
     icon: "canva",
     serverUrl: "https://mcp.canva.com/mcp",
+    // Its server registers any client, then refuses the sign-in of one whose redirect URI Canva hasn't listed
+    // ("Invalid redirect URI." at `/authorize`, checked 2026-11-22).
+    soon: true,
+    // Left out: deleting assets and folders, and uploads from a file (an image comes in by its address).
+    composio: {
+      toolkit: "canva",
+      version: "20261116_00",
+      auth: "managed",
+      actions: [
+        "CANVA_LIST_USER_DESIGNS",
+        "CANVA_FETCH_DESIGN_METADATA_AND_ACCESS_INFORMATION",
+        "CANVA_LIST_DESIGN_PAGES_WITH_PAGINATION",
+        "CANVA_LIST_FOLDER_ITEMS_BY_TYPE_WITH_SORTING",
+        "CANVA_ACCESS_USER_SPECIFIC_BRAND_TEMPLATES_LIST",
+        "CANVA_RETRIEVE_BRAND_TEMPLATE_DATASET_DEFINITION",
+        "CANVA_GET_DESIGNS_DESIGNID_COMMENTS_THREADID",
+        "CANVA_GET_DESIGN_COMMENT_REPLIES",
+        "CANVA_GET_DESIGNS_DESIGNID_EXPORT_FORMATS",
+        "CANVA_POST_DESIGNS",
+        "CANVA_POST_EXPORTS",
+        "CANVA_GET_DESIGN_EXPORT_JOB_RESULT",
+        "CANVA_CREATE_URL_ASSET_UPLOAD_JOB",
+        "CANVA_GET_URL_ASSET_UPLOADS_JOBID",
+        "CANVA_INITIATE_CANVA_DESIGN_AUTOFILL_JOB",
+        "CANVA_RETRIEVE_DESIGN_AUTOFILL_JOB_STATUS",
+        "CANVA_CREATE_DESIGN_RESIZE_JOB",
+        "CANVA_RETRIEVE_DESIGN_RESIZE_JOB_STATUS",
+        "CANVA_POST_DESIGNS_DESIGNID_COMMENTS",
+        "CANVA_POST_DESIGNS_DESIGNID_COMMENTS_THREADID_REPLIES",
+      ],
+    },
   },
   {
     id: "gitlab",

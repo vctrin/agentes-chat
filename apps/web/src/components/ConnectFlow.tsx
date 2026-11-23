@@ -630,18 +630,17 @@ function ConnectStep({
       </Locked>
       <DialogFooter
         bar
+        busyNote={connect.isPending ? steps : undefined}
         note={
-          connect.isPending
-            ? steps
-            : viaApp
-              ? t("connectFlow.github.appNote")
-              : replacing
-                ? t(unchecked ? "connectFlow.replaceUnchecked" : "connectFlow.replace")
-                : again && unchecked
-                  ? t("connectFlow.newAccountUnchecked")
-                  : personal
-                    ? t("connectors.personal.done")
-                    : t("connectFlow.allCanUse")
+          viaApp
+            ? t("connectFlow.github.appNote")
+            : replacing
+              ? t(unchecked ? "connectFlow.replaceUnchecked" : "connectFlow.replace")
+              : again && unchecked
+                ? t("connectFlow.newAccountUnchecked")
+                : personal
+                  ? t("connectors.personal.done")
+                  : t("connectFlow.allCanUse")
         }
       >
         <Button onClick={onClose}>{t("common.cancel")}</Button>

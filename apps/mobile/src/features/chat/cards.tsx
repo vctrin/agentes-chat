@@ -1,6 +1,7 @@
 import {
   type AgentQuestion,
   type Approval,
+  type FileConversation,
   type ThreadInfo,
   useApi,
   useApproval,
@@ -871,7 +872,7 @@ export function QuestionCard({ question, asker }: { question: AgentQuestion; ask
                     style={[styles.optBox, { backgroundColor: on ? c.ink : c.sunken }]}
                     contentStyle={styles.opt}
                   >
-                    <Text variant="callout" style={[styles.optText, { color: on ? c.bg : c.ink }]}>
+                    <Text variant="subhead" style={[styles.optText, { color: on ? c.bg : c.ink }]}>
                       {choice}
                     </Text>
                   </PressScale>
@@ -885,7 +886,7 @@ export function QuestionCard({ question, asker }: { question: AgentQuestion; ask
                 style={[styles.optBox, styles.other, { borderColor: c.line2 }]}
                 contentStyle={styles.opt}
               >
-                <Text variant="callout" tone="muted">
+                <Text variant="subhead" tone="muted" style={styles.optText}>
                   {t("ask.otherAnswer")}
                 </Text>
               </PressScale>
@@ -952,13 +953,13 @@ export function ThreadLink({ thread }: { thread: ThreadInfo }) {
       </View>
       {thread.replyCount > 0 ? (
         <>
-          <Count value={thread.replyCount} size={15} />
-          <Text variant="small" tone="ink2" style={styles.bold}>
+          <Count value={thread.replyCount} size={13} />
+          <Text variant="label" tone="ink2">
             {t("mobile.chat.repliesWord", { count: thread.replyCount })}
           </Text>
         </>
       ) : (
-        <Text variant="small" tone="ink2" style={styles.bold}>
+        <Text variant="label" tone="ink2">
           {t("mobile.chat.thread")}
         </Text>
       )}
@@ -972,7 +973,7 @@ export function ThreadLink({ thread }: { thread: ThreadInfo }) {
             <Icon name="clock" size={14} color={c.faint} />
           )}
           <Text
-            variant="small"
+            variant="footnote"
             numberOfLines={1}
             style={[styles.bold, { color: tone === "working" ? c.agent : tone === "you" ? c.amberInk : c.muted }]}
           >
@@ -980,7 +981,7 @@ export function ThreadLink({ thread }: { thread: ThreadInfo }) {
           </Text>
         </View>
       ) : null}
-      <Text variant="small" tone="faint" numberOfLines={1} style={styles.shrink}>
+      <Text variant="footnote" tone="faint" numberOfLines={1} style={styles.shrink}>
         {thread.state === "closed"
           ? ` · ${t("mobile.chat.closed")}`
           : state
@@ -989,6 +990,54 @@ export function ThreadLink({ thread }: { thread: ThreadInfo }) {
               : ""
             : ` · ${when.short(thread.lastActivityAt)}`}
       </Text>
+      <Disclosure />
+    </PressScale>
+  );
+}
+
+/**
+ * Under a picture, a video or a PDF posted in a conversation, once it has comments (ADR 0208): who commented,
+ * "3 comments on the image" and when, the look of a thread's link; a tap opens the file, its conversation under it.
+ */
+export function FileCommentsLink({
+  talk,
+  media,
+  onPress,
+}: {
+  talk: Pick<FileConversation, "count" | "lastAt" | "participants">;
+  media: "image" | "video" | "pdf";
+  onPress: () => void;
+}) {
+  const { t } = useTranslation();
+  const surface = useSurface();
+  const when = useWhen();
+  const faces = threadFaces(talk.participants, 2);
+  const label = t(`files.comments.line.${media}` as "files.comments.line.image", { count: talk.count });
+  return (
+    <PressScale
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      hitSlop={{ top: (TOUCH - THREAD_LINK) / 2, bottom: (TOUCH - THREAD_LINK) / 2 }}
+      fill={false}
+      style={[styles.tlinkBox, surface]}
+      contentStyle={styles.tlink}
+    >
+      <View style={styles.faces}>
+        {faces.map((f, i) => (
+          <View key={`${f.type}:${f.id}`} style={i > 0 ? styles.overlap : undefined}>
+            <Face who={f} size={20} live={false} />
+          </View>
+        ))}
+      </View>
+      <Text variant="label" tone="ink2" numberOfLines={1} style={styles.shrink}>
+        {label}
+      </Text>
+      {talk.lastAt ? (
+        <Text variant="footnote" tone="faint" numberOfLines={1}>
+          {` · ${when.short(talk.lastAt)}`}
+        </Text>
+      ) : null}
       <Disclosure />
     </PressScale>
   );
@@ -1035,7 +1084,7 @@ export function ThreadReplyingLink({
         ))}
       </View>
       <PixelOrbit color={agentLook(dir.agentById.get(agentIds[0] ?? "")).color} size={14} />
-      <Text variant="small" tone="ink2" numberOfLines={1} style={[styles.bold, styles.shrink]}>
+      <Text variant="label" tone="ink2" numberOfLines={1} style={styles.shrink}>
         {label}
       </Text>
       <Disclosure />
@@ -1093,7 +1142,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
   },
-  optText: { flexShrink: 1 },
+  // An option's word, as every card's options: the card's text (15), medium.
+  optText: { flexShrink: 1, fontWeight: "500" },
   other: { backgroundColor: "transparent", borderWidth: 1 },
   tlinkBox: { alignSelf: "flex-start", maxWidth: "100%", borderRadius: 10 },
   tlink: {
